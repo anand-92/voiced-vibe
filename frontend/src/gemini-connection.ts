@@ -62,6 +62,10 @@ export class GeminiConnection {
           tools: [{ functionDeclarations }],
           outputAudioTranscription: {},
           inputAudioTranscription: {},
+          maxOutputTokens: 8192,
+          thinkingConfig: {
+            thinkingBudget: 8192,
+          },
         },
         callbacks: {
           onopen: () => {
