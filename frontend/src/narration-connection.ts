@@ -18,6 +18,7 @@ export class NarrationConnection {
   private onTurnDone: () => void;
   private muted = false;
   private connected = false;
+  private disconnecting = false;
   private languageCode: string;
 
   // Batch events: collect for a short window, then send as one message
@@ -33,6 +34,7 @@ export class NarrationConnection {
   }
 
   async connect(): Promise<void> {
+    this.disconnecting = false;
     try {
       const [tokenRes, configRes] = await Promise.all([
         fetch("/api/token").then((r) => r.json()) as Promise<TokenResponse>,
@@ -81,6 +83,9 @@ export class NarrationConnection {
           onclose: (event: any) => {
             log("NARRATION", "Disconnected", `code=${event?.code} reason=${event?.reason || "unknown"}`);
             this.connected = false;
+            if (!this.disconnecting) {
+              this.scheduleReconnect();
+            }
           },
         },
       });
@@ -209,7 +214,15 @@ export class NarrationConnection {
     return this.connected;
   }
 
+  private scheduleReconnect(): void {
+    log("NARRATION", "Reconnecting in 5s...");
+    setTimeout(async () => {
+      await this.connect();
+    }, 5000);
+  }
+
   async disconnect(): Promise<void> {
+    this.disconnecting = true;
     this.muted = true;
     this.eventBuffer = [];
     if (this.flushTimer) {

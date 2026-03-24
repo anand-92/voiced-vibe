@@ -21,6 +21,10 @@ export class AudioManager {
   private captureStartListeners: (() => void)[] = [];
   private captureEndListeners: (() => void)[] = [];
 
+  // Analysers for UI visualization
+  private inputAnalyser: AnalyserNode | null = null;
+  private outputAnalyser: AnalyserNode | null = null;
+
   // Accumulated chunks for STT transcription
   private sttChunks: string[] = [];
   private isCapturing = false;
@@ -35,6 +39,9 @@ export class AudioManager {
   async init(): Promise<void> {
     // Playback context at default sample rate (browser resamples 24kHz buffers)
     this.playbackCtx = new AudioContext();
+    this.outputAnalyser = this.playbackCtx.createAnalyser();
+    this.outputAnalyser.fftSize = 256;
+    this.outputAnalyser.connect(this.playbackCtx.destination);
 
     // Resume on any user interaction (browser autoplay policy)
     const resumeCtx = () => {
@@ -152,6 +159,11 @@ export class AudioManager {
       this.captureCtx = new AudioContext({ sampleRate: 16000 });
       this.sourceNode = this.captureCtx.createMediaStreamSource(this.micStream);
 
+      // Input analyser for UI visualization
+      this.inputAnalyser = this.captureCtx.createAnalyser();
+      this.inputAnalyser.fftSize = 256;
+      this.sourceNode.connect(this.inputAnalyser);
+
       // Register AudioWorklet processor
       await this.captureCtx.audioWorklet.addModule("/pcm-worklet-processor.js");
       this.workletNode = new AudioWorkletNode(this.captureCtx, "pcm-worklet-processor");
@@ -172,6 +184,8 @@ export class AudioManager {
       };
 
       this.sourceNode.connect(this.workletNode);
+      // We don't necessarily need to connect to destination if we just want to capture
+      // but connecting it ensures the context stays active and processing.
       this.workletNode.connect(this.captureCtx.destination);
 
       // Update UI
@@ -258,7 +272,13 @@ export class AudioManager {
 
       const source = this.playbackCtx.createBufferSource();
       source.buffer = buffer;
-      source.connect(this.playbackCtx.destination);
+
+      // Connect to output analyser before destination
+      if (this.outputAnalyser) {
+        source.connect(this.outputAnalyser);
+      } else {
+        source.connect(this.playbackCtx.destination);
+      }
 
       // Schedule gapless playback
       if (this.nextStartTime < this.playbackCtx.currentTime) {
@@ -299,6 +319,14 @@ export class AudioManager {
     chunksPlayed = 0;
 
     log("AUDIO_OUT", "Playback cleared (interrupted)");
+  }
+
+  getInputAnalyser(): AnalyserNode | null {
+    return this.inputAnalyser;
+  }
+
+  getOutputAnalyser(): AnalyserNode | null {
+    return this.outputAnalyser;
   }
 
   destroy(): void {

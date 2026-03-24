@@ -15,11 +15,13 @@ import { GeminiConnection } from "./gemini-connection";
 import { NarrationConnection } from "./narration-connection";
 import { BackendConnection } from "./backend-connection";
 import { UI } from "./ui";
+import { WaveRenderer } from "./wave-renderer";
 import type { BackendMessage, ClaudeToolUseEvent } from "./types";
 
 const ui = new UI();
 
 let audioManager: AudioManager | null = null;
+let waveRenderer: WaveRenderer | null = null;
 let gemini: GeminiConnection | null = null;
 let narration: NarrationConnection | null = null;
 let backend: BackendConnection | null = null;
@@ -64,6 +66,12 @@ async function browseDir(path: string): Promise<void> {
 async function initVoiceUI(): Promise<void> {
   audioManager = new AudioManager();
   await audioManager.init();
+
+  const canvas = document.getElementById("wave-canvas") as HTMLCanvasElement;
+  if (canvas) {
+    waveRenderer = new WaveRenderer(canvas, audioManager);
+    waveRenderer.start();
+  }
 
   // Track Claude's activity during a function call so we can include
   // a summary in the function response — this lets Gemini narrate what happened.
