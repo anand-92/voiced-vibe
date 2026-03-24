@@ -1,6 +1,6 @@
 # 🐫 VoiceClaw
 
-The world's first Voice Coding Agent, powered by Claude Code.
+> **The world's first Voice Coding Agent, powered by Claude Code.**
 
 Voice-first AI pair programmer. Talk to your codebase through Gemini Live, with Claude Code doing the heavy lifting.
 
