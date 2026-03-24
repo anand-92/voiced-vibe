@@ -8,15 +8,18 @@
 import type { BackendMessage } from "./types";
 
 export type BackendEventCallback = (msg: BackendMessage) => void;
+export type BackendStatusCallback = (connected: boolean) => void;
 
 export class BackendConnection {
   private ws: WebSocket | null = null;
   private onEvent: BackendEventCallback;
+  private onStatus: BackendStatusCallback | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private connected = false;
 
-  constructor(onEvent: BackendEventCallback) {
+  constructor(onEvent: BackendEventCallback, onStatus?: BackendStatusCallback) {
     this.onEvent = onEvent;
+    this.onStatus = onStatus || null;
   }
 
   connect(): void {
@@ -29,6 +32,7 @@ export class BackendConnection {
     this.ws.onopen = () => {
       console.log("Backend connected");
       this.connected = true;
+      this.onStatus?.(true);
     };
 
     this.ws.onmessage = (event) => {
@@ -43,6 +47,7 @@ export class BackendConnection {
     this.ws.onclose = () => {
       console.log("Backend disconnected");
       this.connected = false;
+      this.onStatus?.(false);
       this.scheduleReconnect();
     };
 

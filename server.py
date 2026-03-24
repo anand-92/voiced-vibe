@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -16,6 +16,7 @@ from claude_runner import ClaudeRunner
 from context_bridge import ContextBridge
 from function_router import FunctionRouter
 from gemini_session import create_ephemeral_token
+from stt_service import transcribe_audio
 
 load_dotenv()
 
@@ -129,6 +130,18 @@ async def get_config():
     }
 
 
+@app.get("/api/narration-config")
+async def get_narration_config():
+    prompt_path = Path(__file__).parent / "prompts" / "narration_system.md"
+    system_prompt = ""
+    if prompt_path.exists():
+        system_prompt = prompt_path.read_text(encoding="utf-8")
+    return {
+        "system_prompt": system_prompt,
+        "model": "gemini-2.5-flash-native-audio-preview-12-2025",
+    }
+
+
 @app.get("/api/session")
 async def get_session():
     if not session_manager:
@@ -144,6 +157,71 @@ async def update_session(data: dict):
     if session_manager and "gemini_handle" in data:
         session_manager.gemini_handle = data["gemini_handle"]
     return {"ok": True}
+
+
+@app.post("/api/transcribe")
+async def transcribe(request: Request):
+    """Transcribe audio via Gemini generateContent. Runs in parallel with Live API."""
+    try:
+        data = await request.json()
+        chunks = data.get("audio_chunks", [])
+        language = data.get("language", "en-US")
+        if not chunks:
+            return {"transcript": ""}
+        transcript = await transcribe_audio(chunks, language)
+        return {"transcript": transcript}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"transcript": "", "error": str(e)}, status_code=200)
+
+
+@app.post("/api/claude-config")
+async def set_claude_config(request: Request):
+    if not claude_runner:
+        return JSONResponse({"error": "No project selected"}, status_code=400)
+
+    data = await request.json()
+    model = data.get("model", "").strip()
+    effort = data.get("effort", "").strip()
+
+    valid_models = {"opus", "sonnet", "haiku"}
+    valid_efforts = {"low", "medium", "high", "max"}
+
+    if model and model in valid_models:
+        claude_runner.model = model
+    if effort and effort in valid_efforts:
+        claude_runner.effort = effort
+
+    return {"model": claude_runner.model, "effort": claude_runner.effort}
+
+
+@app.get("/api/claude-config")
+async def get_claude_config():
+    if not claude_runner:
+        return {"model": "opus", "effort": "medium"}
+    return {"model": claude_runner.model, "effort": claude_runner.effort}
+
+
+@app.get("/api/checkpoints")
+async def list_checkpoints():
+    if not git_checkpoint:
+        return {"checkpoints": [], "error": "No project selected"}
+    return {"checkpoints": git_checkpoint.list_checkpoints()}
+
+
+@app.post("/api/checkpoints/restore")
+async def restore_checkpoint(request: Request):
+    if not git_checkpoint:
+        return JSONResponse({"error": "No project selected"}, status_code=400)
+    data = await request.json()
+    commit_hash = data.get("hash", "").strip()
+    if not commit_hash:
+        return JSONResponse({"error": "No commit hash provided"}, status_code=400)
+    result = git_checkpoint.restore(commit_hash)
+    if not result["ok"]:
+        return JSONResponse(result, status_code=400)
+    return result
 
 
 @app.get("/api/context")

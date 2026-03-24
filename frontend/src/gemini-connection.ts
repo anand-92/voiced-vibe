@@ -14,7 +14,9 @@ import { log, logGeminiMessage } from "./debug-log";
 export interface GeminiCallbacks {
   onTranscript: (role: "user" | "gemini", text: string) => void;
   onTurnComplete: () => void;
+  onInterrupted: () => void;
   onFunctionCall: (id: string, name: string, args: Record<string, unknown>) => void;
+  onThinking: (text: string) => void;
   onConnected: () => void;
   onDisconnected: () => void;
   onStateChange: (state: "idle" | "thinking" | "speaking" | "listening") => void;
@@ -27,9 +29,12 @@ export class GeminiConnection {
   private callbacks: GeminiCallbacks;
   private reconnecting = false;
 
-  constructor(audioManager: AudioManager, callbacks: GeminiCallbacks) {
+  private languageCode: string;
+
+  constructor(audioManager: AudioManager, callbacks: GeminiCallbacks, languageCode: string = "en-US") {
     this.audioManager = audioManager;
     this.callbacks = callbacks;
+    this.languageCode = languageCode;
   }
 
   async connect(): Promise<void> {
@@ -52,7 +57,18 @@ export class GeminiConnection {
       });
 
       log("GEMINI", `Connecting model=${configRes.model} token_len=${tokenRes.token.length} prompt_len=${configRes.system_prompt.length} tools=${functionDeclarations.map(f => f.name).join(",")}`);
-      log("GEMINI", `Tool declarations: ${JSON.stringify(functionDeclarations.map(f => ({ name: f.name, params: Object.keys(f.parameters?.properties || {}) })))}`);
+      log("GEMINI", `Tool declarations: ${JSON.stringify(functionDeclarations.map(f => ({ name: f.name, params: Object.keys((f.parametersJsonSchema as any)?.properties || {}) })))}`);
+
+      // Set up audio callbacks once (not in onopen which fires on every reconnect)
+      this.audioManager.setOnChunk((base64) => {
+        this.sendAudio(base64);
+      });
+      this.audioManager.setOnCaptureStart(() => {
+        this.sendActivityStart();
+      });
+      this.audioManager.setOnCaptureEnd(() => {
+        this.sendActivityEnd();
+      });
 
       this.session = await ai.live.connect({
         model: configRes.model,
@@ -60,25 +76,32 @@ export class GeminiConnection {
           responseModalities: [Modality.AUDIO],
           systemInstruction: configRes.system_prompt,
           tools: [{ functionDeclarations }],
+          speechConfig: {
+            languageCode: this.languageCode,
+          },
           outputAudioTranscription: {},
           inputAudioTranscription: {},
+          realtimeInputConfig: {
+            automaticActivityDetection: { disabled: true },
+          },
           maxOutputTokens: 8192,
           thinkingConfig: {
             thinkingBudget: 8192,
+          },
+          contextWindowCompression: {
+            triggerTokens: "100000",
+            slidingWindow: {
+              targetTokens: "80000",
+            },
+          },
+          sessionResumption: {
+            ...(this.sessionHandle ? { handle: this.sessionHandle } : {}),
           },
         },
         callbacks: {
           onopen: () => {
             log("GEMINI", "Connected");
             this.callbacks.onConnected();
-
-            // Start sending audio
-            this.audioManager.setOnChunk((base64) => {
-              this.sendAudio(base64);
-            });
-            this.audioManager.setOnCaptureEnd(() => {
-              this.sendAudioEnd();
-            });
           },
           onmessage: (message: any) => {
             logGeminiMessage(message);
@@ -88,7 +111,7 @@ export class GeminiConnection {
             log("GEMINI", "Error", error?.message || error);
           },
           onclose: (event: any) => {
-            log("GEMINI", "Disconnected", event?.reason || "unknown");
+            log("GEMINI", "Disconnected", `code=${event?.code} reason=${event?.reason || "unknown"} wasClean=${event?.wasClean}`);
             this.callbacks.onDisconnected();
             this.scheduleReconnect();
           },
@@ -124,8 +147,11 @@ export class GeminiConnection {
           this.callbacks.onStateChange("speaking");
           this.audioManager.queuePlayback(part.inlineData.data);
         } else if (part.thought) {
-          // Thought = internal reasoning, don't show as transcript
+          // Thought = internal reasoning
           this.callbacks.onStateChange("thinking");
+          if (part.text) {
+            this.callbacks.onThinking(part.text);
+          }
         } else if (part.text) {
           // Regular text response (non-audio)
           this.callbacks.onTranscript("gemini", part.text);
@@ -133,7 +159,7 @@ export class GeminiConnection {
       }
     }
 
-    // Input audio transcription (what the user said)
+    // Input transcription — show as draft, will be replaced by accurate STT
     if (message.serverContent?.inputTranscription?.text) {
       this.callbacks.onTranscript(
         "user",
@@ -147,6 +173,14 @@ export class GeminiConnection {
         "gemini",
         message.serverContent.outputTranscription.text
       );
+    }
+
+    // Interrupted — user spoke over Gemini, stop playback immediately
+    if (message.serverContent?.interrupted) {
+      log("GEMINI", "Interrupted by user");
+      this.audioManager.clearPlayback();
+      this.callbacks.onInterrupted();
+      this.callbacks.onStateChange("idle");
     }
 
     // Turn complete — back to idle, end transcript accumulation
@@ -187,21 +221,34 @@ export class GeminiConnection {
     }
   }
 
-  /** Send a text message to Gemini (for testing tool calls). */
-  sendText(text: string): void {
+  /** Send a text message to Gemini, optionally with images. */
+  sendText(text: string, images?: { mimeType: string; data: string }[]): void {
     if (!this.session) return;
     try {
+      const parts: any[] = [];
+
+      if (images) {
+        for (const img of images) {
+          parts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
+        }
+        log("GEMINI", `Sending ${images.length} image(s)`);
+      }
+
+      if (text) {
+        parts.push({ text });
+      }
+
       this.session.sendClientContent({
-        turns: [{ role: "user", parts: [{ text }] }],
+        turns: [{ role: "user", parts }],
         turnComplete: true,
       });
-      log("GEMINI", `Sent text: "${text}"`);
+      log("GEMINI", `Sent message: "${text}" + ${images?.length || 0} images`);
     } catch (err) {
-      log("GEMINI", `ERROR sending text: ${err}`);
+      log("GEMINI", `ERROR sending message: ${err}`);
     }
   }
 
-  /** Signal that the user stopped speaking (spacebar released). */
+  /** Signal that the user stopped speaking (spacebar released / toggle off). */
   sendAudioEnd(): void {
     if (!this.session) return;
     try {
@@ -210,6 +257,28 @@ export class GeminiConnection {
       this.audioSendCount = 0;
     } catch (err) {
       log("AUDIO_SEND", `ERROR sending audioStreamEnd: ${err}`);
+    }
+  }
+
+  /** Tell Gemini user started talking — suppresses automatic VAD turn detection. */
+  sendActivityStart(): void {
+    if (!this.session) return;
+    try {
+      this.session.sendRealtimeInput({ activityStart: {} });
+      log("AUDIO_SEND", "Sent activityStart (manual VAD)");
+    } catch (err) {
+      log("AUDIO_SEND", `ERROR sending activityStart: ${err}`);
+    }
+  }
+
+  /** Tell Gemini user finished talking — signals end of turn. */
+  sendActivityEnd(): void {
+    if (!this.session) return;
+    try {
+      this.session.sendRealtimeInput({ activityEnd: {} });
+      log("AUDIO_SEND", "Sent activityEnd (manual VAD)");
+    } catch (err) {
+      log("AUDIO_SEND", `ERROR sending activityEnd: ${err}`);
     }
   }
 

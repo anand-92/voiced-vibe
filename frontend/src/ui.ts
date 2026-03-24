@@ -1,13 +1,47 @@
 /**
- * UI — DOM manipulation for transcript, activity feed, and diff viewer.
+ * UI — DOM manipulation for transcript, unified timeline, and filters.
  */
 
+import { marked } from "marked";
 import type { ClaudeToolUseEvent } from "./types";
+
+// Configure marked for inline rendering
+marked.setOptions({ breaks: true });
+
+// Event categories — used for filtering and styling
+type EventCategory =
+  | "gemini-thinking"
+  | "gemini-tool-call"
+  | "gemini-tool-result"
+  | "gemini-tool-error"
+  | "gemini-summarize"
+  | "claude-tool"
+  | "claude-done"
+  | "claude-error"
+  | "claude-thinking"
+  | "claude-text"
+  | "file-change"
+  | "status";
+
+// Map visual categories to their filter group
+const FILTER_MAP: Record<EventCategory, string> = {
+  "gemini-thinking": "gemini-thinking",
+  "gemini-tool-call": "gemini-tool-call",
+  "gemini-tool-result": "gemini-tool-result",
+  "gemini-tool-error": "gemini-tool-result",
+  "gemini-summarize": "gemini-tool-result",
+  "claude-tool": "claude-tool",
+  "claude-done": "claude-tool",
+  "claude-error": "claude-tool",
+  "claude-thinking": "claude-thinking",
+  "claude-text": "claude-tool",
+  "file-change": "file-change",
+  "status": "status",
+};
 
 export class UI {
   private transcriptEl: HTMLElement;
-  private activityLog: HTMLElement;
-  private diffsEl: HTMLElement;
+  private timeline: HTMLElement;
   private statusDot: HTMLElement;
   private statusText: HTMLElement;
   private micBtn: HTMLElement;
@@ -25,10 +59,12 @@ export class UI {
   private recentProjectsEl: HTMLElement;
   private projectNameEl: HTMLElement;
 
+  // Filter state
+  private filters: Record<string, boolean> = {};
+
   constructor() {
     this.transcriptEl = document.getElementById("transcript")!;
-    this.activityLog = document.getElementById("activity-log")!;
-    this.diffsEl = document.getElementById("diffs")!;
+    this.timeline = document.getElementById("timeline")!;
     this.statusDot = document.getElementById("connection-status")!;
     this.statusText = document.getElementById("status-text")!;
     this.micBtn = document.getElementById("mic-btn")!;
@@ -42,6 +78,35 @@ export class UI {
     this.browserHeader = document.getElementById("browser-header")!;
     this.recentProjectsEl = document.getElementById("recent-projects")!;
     this.projectNameEl = document.getElementById("project-name")!;
+
+    this.initFilters();
+  }
+
+  private initFilters(): void {
+    const chips = document.querySelectorAll(".filter-chip");
+    chips.forEach((chip) => {
+      const filterName = (chip as HTMLElement).dataset.filter!;
+      const checkbox = chip.querySelector("input") as HTMLInputElement;
+      this.filters[filterName] = checkbox.checked;
+
+      chip.addEventListener("click", (e) => {
+        e.preventDefault();
+        checkbox.checked = !checkbox.checked;
+        this.filters[filterName] = checkbox.checked;
+        chip.classList.toggle("unchecked", !checkbox.checked);
+        this.applyFilters();
+      });
+    });
+  }
+
+  private applyFilters(): void {
+    const entries = this.timeline.querySelectorAll(".tl-entry");
+    entries.forEach((entry) => {
+      const cat = (entry as HTMLElement).dataset.category as EventCategory;
+      const filterGroup = FILTER_MAP[cat] || cat;
+      const visible = this.filters[filterGroup] !== false;
+      (entry as HTMLElement).style.display = visible ? "" : "none";
+    });
   }
 
   onConnectClick(handler: () => void): void {
@@ -61,12 +126,10 @@ export class UI {
     this.pickerScreen.style.display = "none";
     this.voiceScreen.style.display = "flex";
 
-    // Show project name in header
     const name = projectPath.split(/[/\\]/).pop() || projectPath;
     this.projectNameEl.textContent = name;
     this.projectNameEl.title = projectPath;
 
-    // Save to recent projects
     this.addRecentProject(projectPath);
   }
 
@@ -133,7 +196,6 @@ export class UI {
   }
 
   setPickerError(msg: string): void {
-    // Brief error flash on the input
     this.projectPathInput.classList.add("input-error");
     this.projectPathInput.placeholder = msg;
     setTimeout(() => {
@@ -212,12 +274,11 @@ export class UI {
 
   // ── Transcript ──────────────────────────────────────────────
 
-  private lastTranscriptRole: "user" | "gemini" | null = null;
+  private lastTranscriptRole: "user" | "gemini" | "narrator" | null = null;
   private lastTranscriptEl: HTMLElement | null = null;
   private lastTranscriptText = "";
 
-  addTranscript(role: "user" | "gemini", text: string): void {
-    // Accumulate into the current entry if same role
+  addTranscript(role: "user" | "gemini" | "narrator", text: string): void {
     if (role === this.lastTranscriptRole && this.lastTranscriptEl) {
       this.lastTranscriptText += text;
       const textSpan = this.lastTranscriptEl.querySelector(".transcript-text");
@@ -225,10 +286,10 @@ export class UI {
         textSpan.textContent = this.lastTranscriptText;
       }
     } else {
-      // New role or first entry — create a new line
       const entry = document.createElement("div");
       entry.className = `transcript-entry transcript-${role}`;
-      const roleLabel = role === "user" ? "You" : "Gemini";
+      const roleLabels: Record<string, string> = { user: "You", gemini: "Jarvis", narrator: "Jarvis" };
+      const roleLabel = roleLabels[role] || role;
       entry.innerHTML = `<span class="role">${roleLabel}:</span> <span class="transcript-text">${escapeHtml(text)}</span>`;
 
       this.transcriptEl.appendChild(entry);
@@ -240,26 +301,84 @@ export class UI {
     this.transcriptEl.scrollTop = this.transcriptEl.scrollHeight;
   }
 
-  /** End the current transcript accumulation (e.g. on turn complete). */
   endTranscript(): void {
     this.lastTranscriptRole = null;
     this.lastTranscriptEl = null;
     this.lastTranscriptText = "";
   }
 
-  // ── Activity Feed ───────────────────────────────────────────
+  replaceLastUserTranscript(text: string): void {
+    const entries = this.transcriptEl.querySelectorAll(".transcript-user");
+    const last = entries[entries.length - 1];
+    if (last) {
+      const textSpan = last.querySelector(".transcript-text");
+      if (textSpan) {
+        textSpan.textContent = text;
+        last.classList.remove("transcript-draft");
+      }
+    }
+  }
 
-  addActivityEvent(event: ClaudeToolUseEvent): void {
+  markLastAsDraft(): void {
+    if (this.lastTranscriptEl && this.lastTranscriptRole === "user") {
+      this.lastTranscriptEl.classList.add("transcript-draft");
+    }
+  }
+
+  // ── Unified Timeline ──────────────────────────────────────
+
+  private appendTimeline(category: EventCategory, tag: string, detail: string, renderMarkdown = false): void {
     const entry = document.createElement("div");
-    entry.className = "activity-entry";
+    entry.className = `tl-entry cat-${category}`;
+    entry.dataset.category = category;
 
-    const time = new Date().toLocaleTimeString("en-US", {
+    const time = this.timeStamp();
+    const filterGroup = FILTER_MAP[category] || category;
+    const visible = this.filters[filterGroup] !== false;
+    if (!visible) entry.style.display = "none";
+
+    if (renderMarkdown && looksLikeMarkdown(detail)) {
+      const rendered = marked.parse(detail) as string;
+      entry.innerHTML = `<span class="tl-time">${time}</span> <span class="tl-tag">${escapeHtml(tag)}</span> <span class="tl-detail md-content">${rendered}</span>`;
+    } else {
+      entry.innerHTML = `<span class="tl-time">${time}</span> <span class="tl-tag">${escapeHtml(tag)}</span> <span class="tl-detail">${escapeHtml(detail)}</span>`;
+    }
+
+    this.timeline.appendChild(entry);
+    this.timeline.scrollTop = this.timeline.scrollHeight;
+  }
+
+  private timeStamp(): string {
+    return new Date().toLocaleTimeString("en-US", {
       hour12: false,
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
     });
+  }
 
+  // Gemini events
+  addGeminiThinking(text: string): void {
+    this.appendTimeline("gemini-thinking", "Thinking", text);
+  }
+
+  addGeminiToolCall(name: string, args: Record<string, unknown>): void {
+    const argsPreview = JSON.stringify(args).slice(0, 120);
+    this.appendTimeline("gemini-tool-call", "Tool Call", `${name}(${argsPreview})`);
+  }
+
+  addGeminiToolResult(name: string, result: string, isError: boolean): void {
+    const cat: EventCategory = isError ? "gemini-tool-error" : "gemini-tool-result";
+    const tag = isError ? "Error" : "Result";
+    this.appendTimeline(cat, tag, result, true);
+  }
+
+  addGeminiSummarize(functionName: string): void {
+    this.appendTimeline("gemini-summarize", "Summarizing", `Relaying Claude's ${functionName} response`);
+  }
+
+  // Claude events
+  addActivityEvent(event: ClaudeToolUseEvent): void {
     const icon = toolIcon(event.tool);
     let detail = "";
 
@@ -267,19 +386,15 @@ export class UI {
       detail = (event.input.file_path as string) || event.tool;
     } else if (event.tool === "Bash") {
       detail = ((event.input.command as string) || "").slice(0, 80);
-    } else if (event.tool === "Glob") {
-      detail = (event.input.pattern as string) || "search";
-    } else if (event.tool === "Grep") {
+    } else if (event.tool === "Glob" || event.tool === "Grep") {
       detail = (event.input.pattern as string) || "search";
     } else {
       detail = event.tool;
     }
 
-    entry.innerHTML = `<span class="time">${time}</span> ${icon} <span class="detail">${escapeHtml(detail)}</span>`;
-    this.activityLog.appendChild(entry);
-    this.activityLog.scrollTop = this.activityLog.scrollHeight;
+    this.appendTimeline("claude-tool", `${icon} ${event.tool}`, detail);
 
-    // Also render diffs for Edit/Write events
+    // Also add inline diffs for Edit/Write
     if (event.tool === "Edit") {
       this.addDiff(
         (event.input.file_path as string) || "unknown",
@@ -296,64 +411,69 @@ export class UI {
   }
 
   addActivityDone(isError: boolean): void {
-    const entry = document.createElement("div");
-    entry.className = `activity-entry ${isError ? "activity-error" : "activity-done"}`;
-
-    const time = new Date().toLocaleTimeString("en-US", {
-      hour12: false,
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-
-    entry.innerHTML = `<span class="time">${time}</span> ${isError ? "&#10060;" : "&#9989;"} <span class="detail">${isError ? "Error" : "Done"}</span>`;
-    this.activityLog.appendChild(entry);
-    this.activityLog.scrollTop = this.activityLog.scrollHeight;
+    const cat: EventCategory = isError ? "claude-error" : "claude-done";
+    const tag = isError ? "Error" : "Done";
+    this.appendTimeline(cat, tag, isError ? "Task failed" : "Task completed");
   }
 
-  // ── Diff Viewer ─────────────────────────────────────────────
+  addThinking(text: string): void {
+    this.appendTimeline("claude-thinking", "Claude Thinking", text, true);
+  }
 
+  addClaudeText(text: string): void {
+    this.appendTimeline("claude-text", "Claude", text, true);
+  }
+
+  // Status events
+  addStatus(message: string): void {
+    this.appendTimeline("status", "Status", message);
+  }
+
+  // File changes (inline diffs)
   addDiff(filePath: string, oldStr: string, newStr: string): void {
-    const block = document.createElement("div");
-    block.className = "diff-block";
+    const entry = document.createElement("div");
+    entry.className = "tl-entry cat-file-change";
+    entry.dataset.category = "file-change";
 
-    const header = document.createElement("div");
-    header.className = "diff-header";
-    header.textContent = filePath + (oldStr === "" ? " (new)" : " (modified)");
-    block.appendChild(header);
+    const time = this.timeStamp();
+    const filterGroup = FILTER_MAP["file-change"];
+    const visible = this.filters[filterGroup] !== false;
+    if (!visible) entry.style.display = "none";
 
-    const body = document.createElement("div");
-    body.className = "diff-body";
+    const label = oldStr === "" ? "new" : "modified";
+
+    const lineCount = (oldStr ? oldStr.split("\n").length : 0) + newStr.split("\n").length;
+
+    let diffHtml = `<div class="tl-row"><span class="tl-time">${time}</span> <span class="tl-tag">File ${label}</span> <span class="tl-detail">${escapeHtml(filePath)}</span><button class="tl-diff-toggle">\u25B6 ${lineCount} lines</button></div>`;
+    diffHtml += `<div class="tl-diff-body collapsed">`;
 
     if (oldStr) {
       for (const line of oldStr.split("\n")) {
-        const el = document.createElement("div");
-        el.className = "diff-removed";
-        el.textContent = "- " + line;
-        body.appendChild(el);
+        diffHtml += `<div class="diff-removed">- ${escapeHtml(line)}</div>`;
       }
     }
-
     for (const line of newStr.split("\n")) {
-      const el = document.createElement("div");
-      el.className = "diff-added";
-      el.textContent = "+ " + line;
-      body.appendChild(el);
+      diffHtml += `<div class="diff-added">+ ${escapeHtml(line)}</div>`;
     }
+    diffHtml += `</div>`;
 
-    block.appendChild(body);
-    this.diffsEl.appendChild(block);
-    this.diffsEl.scrollTop = this.diffsEl.scrollHeight;
+    entry.innerHTML = diffHtml;
+
+    const toggle = entry.querySelector(".tl-diff-toggle")!;
+    const body = entry.querySelector(".tl-diff-body")!;
+    toggle.addEventListener("click", () => {
+      const collapsed = body.classList.toggle("collapsed");
+      toggle.textContent = collapsed ? `\u25B6 ${lineCount} lines` : `\u25BC ${lineCount} lines`;
+    });
+
+    this.timeline.appendChild(entry);
+    this.timeline.scrollTop = this.timeline.scrollHeight;
   }
 
   // ── Clear ───────────────────────────────────────────────────
 
-  clearActivity(): void {
-    this.activityLog.innerHTML = "";
-  }
-
-  clearDiffs(): void {
-    this.diffsEl.innerHTML = "";
+  clearTimeline(): void {
+    this.timeline.innerHTML = "";
   }
 }
 
@@ -371,13 +491,18 @@ function escapeAttr(text: string): string {
 
 function toolIcon(tool: string): string {
   const icons: Record<string, string> = {
-    Read: "&#128214;",
-    Edit: "&#9999;&#65039;",
-    Write: "&#128196;",
-    Bash: "&#128187;",
-    Glob: "&#128269;",
-    Grep: "&#128269;",
-    LS: "&#128193;",
+    Read: "\u{1F4D6}",
+    Edit: "\u270F\uFE0F",
+    Write: "\u{1F4C4}",
+    Bash: "\u{1F4BB}",
+    Glob: "\u{1F50D}",
+    Grep: "\u{1F50D}",
+    LS: "\u{1F4C1}",
   };
-  return icons[tool] || "&#9881;&#65039;";
+  return icons[tool] || "\u2699\uFE0F";
+}
+
+/** Quick check if text contains markdown syntax worth rendering. */
+function looksLikeMarkdown(text: string): boolean {
+  return /[#*`\-\[\]|]/.test(text) && text.length > 30;
 }

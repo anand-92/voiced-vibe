@@ -44,9 +44,22 @@
           </div>
           <div id="controls">
             <button id="change-project-btn" title="Change project">Change</button>
+            <select id="language-select" title="Speech language">
+              <option value="en-US">English</option>
+              <option value="hi-IN">Hindi</option>
+              <option value="es-ES">Spanish</option>
+              <option value="fr-FR">French</option>
+              <option value="de-DE">German</option>
+              <option value="ja-JP">Japanese</option>
+              <option value="ko-KR">Korean</option>
+              <option value="pt-BR">Portuguese</option>
+              <option value="zh-CN">Chinese</option>
+              <option value="ar-SA">Arabic</option>
+            </select>
             <select id="mode-select">
-              <option value="push-to-talk">Push-to-Talk</option>
+              <option value="toggle">Toggle</option>
               <option value="always-on">Always-On</option>
+              <option value="push-to-talk">Push-to-Talk</option>
             </select>
             <button id="connect-btn">Connect</button>
           </div>
@@ -67,27 +80,37 @@
                   <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
                 </svg>
               </button>
-              <p id="mic-hint">Hold Space to Talk</p>
+              <p id="mic-hint">Tap Space to Talk</p>
             </div>
 
             <div id="text-input-area">
-            <input type="text" id="text-input" placeholder="Type a message (test tools)" spellcheck="false" />
+            <div id="attachment-preview"></div>
+            <div id="input-row">
+              <button id="attach-btn" title="Attach screenshot">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                  <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                </svg>
+              </button>
+              <input type="text" id="text-input" placeholder="Type a message or paste a screenshot" spellcheck="false" />
+              <input type="file" id="file-input" accept="image/*" multiple style="display:none" />
+            </div>
           </div>
 
           <div id="transcript"></div>
           </section>
 
-          <!-- Right panel: Agent Activity + Diffs -->
+          <!-- Right panel: Unified timeline -->
           <section id="activity-panel">
-            <div id="activity-feed">
-              <h2>Agent Activity</h2>
-              <div id="activity-log"></div>
+            <div id="filter-bar">
+              <label class="filter-chip" data-filter="gemini-thinking"><input type="checkbox" checked /><span class="chip-dot" style="background:#58a6ff"></span>Jarvis Thinking</label>
+              <label class="filter-chip" data-filter="gemini-tool-call"><input type="checkbox" checked /><span class="chip-dot" style="background:#d29922"></span>Tool Call</label>
+              <label class="filter-chip" data-filter="gemini-tool-result"><input type="checkbox" checked /><span class="chip-dot" style="background:#3fb950"></span>Tool Result</label>
+              <label class="filter-chip" data-filter="claude-tool"><input type="checkbox" checked /><span class="chip-dot" style="background:#79c0ff"></span>Agent Activity</label>
+              <label class="filter-chip" data-filter="claude-thinking"><input type="checkbox" checked /><span class="chip-dot" style="background:#bc8cff"></span>Agent Thinking</label>
+              <label class="filter-chip" data-filter="file-change"><input type="checkbox" checked /><span class="chip-dot" style="background:#f0883e"></span>File Changes</label>
+              <label class="filter-chip" data-filter="status"><input type="checkbox" checked /><span class="chip-dot" style="background:#6e7681"></span>Status</label>
             </div>
-
-            <div id="diff-panel">
-              <h2>File Changes</h2>
-              <div id="diffs"></div>
-            </div>
+            <div id="timeline"></div>
           </section>
         </main>
       </div>

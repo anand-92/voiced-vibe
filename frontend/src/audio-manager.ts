@@ -16,16 +16,21 @@ export class AudioManager {
   private captureCtx: AudioContext | null = null;
   private micStream: MediaStream | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
-  private processorNode: ScriptProcessorNode | null = null;
+  private workletNode: AudioWorkletNode | null = null;
   private onChunk: AudioChunkCallback | null = null;
-  private onCaptureEnd: (() => void) | null = null;
+  private captureStartListeners: (() => void)[] = [];
+  private captureEndListeners: (() => void)[] = [];
+
+  // Accumulated chunks for STT transcription
+  private sttChunks: string[] = [];
   private isCapturing = false;
-  private mode: "push-to-talk" | "always-on" = "push-to-talk";
+  private mode: "push-to-talk" | "toggle" | "always-on" = "toggle";
 
   // Playback scheduling — gapless audio
   private nextStartTime = 0;
   private playbackQueueProcessing = false;
   private playbackQueue: Float32Array[] = [];
+  private activePlaybackSources: AudioBufferSourceNode[] = [];
 
   async init(): Promise<void> {
     // Playback context at default sample rate (browser resamples 24kHz buffers)
@@ -40,17 +45,20 @@ export class AudioManager {
     document.addEventListener("click", resumeCtx, { once: true });
     document.addEventListener("keydown", resumeCtx, { once: true });
 
-    // Set up keyboard listeners for push-to-talk
+    // Spacebar handling — push-to-talk or toggle depending on mode
     document.addEventListener("keydown", (e) => {
       if (
         e.code === "Space" &&
         !e.repeat &&
-        this.mode === "push-to-talk" &&
         !(e.target instanceof HTMLInputElement) &&
         !(e.target instanceof HTMLTextAreaElement)
       ) {
         e.preventDefault();
-        this.startCapture();
+        if (this.mode === "push-to-talk") {
+          this.startCapture();
+        } else if (this.mode === "toggle") {
+          this.toggleCapture();
+        }
       }
     });
 
@@ -67,12 +75,35 @@ export class AudioManager {
     });
   }
 
-  setMode(mode: "push-to-talk" | "always-on"): void {
+  setMode(mode: "push-to-talk" | "toggle" | "always-on"): void {
     this.mode = mode;
     if (mode === "always-on") {
       this.startCapture();
-    } else {
+    } else if (mode === "push-to-talk" || mode === "toggle") {
       this.stopCapture();
+    }
+  }
+
+  isActive(): boolean {
+    return this.isCapturing;
+  }
+
+  getMode(): string {
+    return this.mode;
+  }
+
+  /** Get accumulated audio chunks for STT and clear the buffer. */
+  flushSttChunks(): string[] {
+    const chunks = this.sttChunks;
+    this.sttChunks = [];
+    return chunks;
+  }
+
+  toggleCapture(): void {
+    if (this.isCapturing) {
+      this.stopCapture();
+    } else {
+      this.startCapture();
     }
   }
 
@@ -80,8 +111,21 @@ export class AudioManager {
     this.onChunk = callback;
   }
 
+  setOnCaptureStart(callback: () => void): void {
+    if (!this.captureStartListeners.includes(callback)) {
+      this.captureStartListeners.push(callback);
+    }
+  }
+
   setOnCaptureEnd(callback: () => void): void {
-    this.onCaptureEnd = callback;
+    if (!this.captureEndListeners.includes(callback)) {
+      this.captureEndListeners.push(callback);
+    }
+  }
+
+  clearListeners(): void {
+    this.captureStartListeners = [];
+    this.captureEndListeners = [];
   }
 
   async startCapture(): Promise<void> {
@@ -108,37 +152,35 @@ export class AudioManager {
       this.captureCtx = new AudioContext({ sampleRate: 16000 });
       this.sourceNode = this.captureCtx.createMediaStreamSource(this.micStream);
 
-      // ScriptProcessor to get raw PCM samples
-      const bufferSize = 2048;
-      this.processorNode = this.captureCtx.createScriptProcessor(
-        bufferSize,
-        1,
-        1
-      );
+      // Register AudioWorklet processor
+      await this.captureCtx.audioWorklet.addModule("/pcm-worklet-processor.js");
+      this.workletNode = new AudioWorkletNode(this.captureCtx, "pcm-worklet-processor");
 
-      this.processorNode.onaudioprocess = (event) => {
+      // Receive PCM chunks from worklet thread
+      this.workletNode.port.onmessage = (event) => {
         if (!this.isCapturing || !this.onChunk) return;
 
-        const input = event.inputBuffer.getChannelData(0);
-
-        // Already at 16kHz from captureCtx — just convert to Int16
-        const pcm16 = float32ToInt16(input);
-        const base64 = arrayBufferToBase64(pcm16.buffer as ArrayBuffer);
+        const pcm16Buffer: ArrayBuffer = event.data.pcm16;
+        const base64 = arrayBufferToBase64(pcm16Buffer);
 
         chunksSent++;
+        this.sttChunks.push(base64);
         if (chunksSent % 50 === 1) {
           log("AUDIO_IN", `Sending chunk #${chunksSent}, ${base64.length} chars, sampleRate=${this.captureCtx?.sampleRate}`);
         }
         this.onChunk(base64);
       };
 
-      this.sourceNode.connect(this.processorNode);
-      this.processorNode.connect(this.captureCtx.destination);
+      this.sourceNode.connect(this.workletNode);
+      this.workletNode.connect(this.captureCtx.destination);
 
       // Update UI
       document.getElementById("mic-btn")?.classList.add("active");
       document.getElementById("mic-hint")!.textContent = "Listening...";
-      log("AUDIO_IN", `Capture started, sampleRate=${this.captureCtx.sampleRate}`);
+      log("AUDIO_IN", `Capture started (AudioWorklet), sampleRate=${this.captureCtx.sampleRate}, mode=${this.mode}`);
+
+      // Notify capture started
+      this.captureStartListeners.forEach((cb) => cb());
     } catch (err) {
       log("AUDIO_IN", `Capture failed: ${err}`);
       this.isCapturing = false;
@@ -149,22 +191,29 @@ export class AudioManager {
     if (!this.isCapturing) return;
     this.isCapturing = false;
 
-    this.processorNode?.disconnect();
+    this.workletNode?.disconnect();
     this.sourceNode?.disconnect();
-    this.processorNode = null;
+    this.workletNode = null;
     this.sourceNode = null;
 
     // Close the capture context (new one created each time)
     this.captureCtx?.close();
     this.captureCtx = null;
 
+    // Release mic so browser stops showing recording indicator
+    if (this.micStream) {
+      this.micStream.getTracks().forEach((t) => t.stop());
+      this.micStream = null;
+    }
+
     // Update UI
     document.getElementById("mic-btn")?.classList.remove("active");
-    document.getElementById("mic-hint")!.textContent = "Hold Space to Talk";
+    const hint = this.mode === "toggle" ? "Tap Space to Talk" : "Hold Space to Talk";
+    document.getElementById("mic-hint")!.textContent = hint;
     log("AUDIO_IN", `Capture stopped, ${chunksSent} chunks sent total`);
 
-    // Notify that capture ended (triggers audioStreamEnd)
-    this.onCaptureEnd?.();
+    // Notify all capture end listeners
+    this.captureEndListeners.forEach((cb) => cb());
   }
 
   /**
@@ -217,9 +266,39 @@ export class AudioManager {
       }
       source.start(this.nextStartTime);
       this.nextStartTime += buffer.duration;
+
+      // Track active sources for interruption
+      this.activePlaybackSources.push(source);
+      source.onended = () => {
+        const idx = this.activePlaybackSources.indexOf(source);
+        if (idx !== -1) this.activePlaybackSources.splice(idx, 1);
+      };
     }
 
     this.playbackQueueProcessing = false;
+  }
+
+  /** Stop all queued and playing audio immediately (for interruption). */
+  clearPlayback(): void {
+    // Clear pending queue
+    this.playbackQueue = [];
+    this.playbackQueueProcessing = false;
+
+    // Stop all currently playing sources
+    for (const source of this.activePlaybackSources) {
+      try {
+        source.stop();
+      } catch {
+        // Already stopped
+      }
+    }
+    this.activePlaybackSources = [];
+
+    // Reset scheduling
+    this.nextStartTime = 0;
+    chunksPlayed = 0;
+
+    log("AUDIO_OUT", "Playback cleared (interrupted)");
   }
 
   destroy(): void {
@@ -228,21 +307,13 @@ export class AudioManager {
       this.micStream.getTracks().forEach((t) => t.stop());
       this.micStream = null;
     }
+    this.clearPlayback();
     this.playbackCtx?.close();
     this.playbackCtx = null;
   }
 }
 
 // ── Audio utility functions ──────────────────────────────────
-
-function float32ToInt16(float32: Float32Array): Int16Array {
-  const int16 = new Int16Array(float32.length);
-  for (let i = 0; i < float32.length; i++) {
-    const s = Math.max(-1, Math.min(1, float32[i]));
-    int16[i] = s * 32768;
-  }
-  return int16;
-}
 
 /** Decode base64 PCM 16-bit to Float32Array for Web Audio playback. */
 function base64ToFloat32Audio(base64: string): Float32Array {
