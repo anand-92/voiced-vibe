@@ -59,7 +59,8 @@ export class GeminiConnection {
       log("GEMINI", `Connecting model=${configRes.model} token_len=${tokenRes.token.length} prompt_len=${configRes.system_prompt.length} tools=${functionDeclarations.map(f => f.name).join(",")}`);
       log("GEMINI", `Tool declarations: ${JSON.stringify(functionDeclarations.map(f => ({ name: f.name, params: Object.keys((f.parametersJsonSchema as any)?.properties || {}) })))}`);
 
-      // Set up audio callbacks once (not in onopen which fires on every reconnect)
+      // Clear old listeners before re-registering (prevents duplicates on reconnect)
+      this.audioManager.clearListeners();
       this.audioManager.setOnChunk((base64) => {
         this.sendAudio(base64);
       });
