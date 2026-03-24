@@ -113,6 +113,10 @@ export class GeminiConnection {
           },
           onclose: (event: any) => {
             log("GEMINI", "Disconnected", `code=${event?.code} reason=${event?.reason || "unknown"} wasClean=${event?.wasClean}`);
+            // Clear stale session handle on "session not found" to avoid reconnect loop
+            if (event?.code === 1008) {
+              this.sessionHandle = null;
+            }
             this.callbacks.onDisconnected();
             this.scheduleReconnect();
           },
