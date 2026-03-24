@@ -116,6 +116,11 @@ export class GeminiConnection {
             // Clear stale session handle on "session not found" to avoid reconnect loop
             if (event?.code === 1008) {
               this.sessionHandle = null;
+              fetch("/api/session", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ gemini_handle: null }),
+              }).catch(() => {});
             }
             this.callbacks.onDisconnected();
             this.scheduleReconnect();
