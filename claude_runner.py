@@ -110,6 +110,7 @@ class ClaudeRunner:
 
         # Track active content blocks for stream_event deltas
         active_blocks: dict[int, dict] = {}  # index -> {type, name, text, input}
+        result_emitted = False
         streamed_thinking = False  # True if thinking was emitted via stream_event
 
         while True:
@@ -227,6 +228,7 @@ class ClaudeRunner:
             # ── result: final output ──
             if event_type == "result":
                 self.session_id = event.get("session_id", self.session_id)
+                result_emitted = True
                 yield {
                     "type": "function_result",
                     "result": event.get("result", ""),
@@ -235,6 +237,15 @@ class ClaudeRunner:
                 }
 
         await loop.run_in_executor(None, self.process.wait)
+
+        # If Claude exited without emitting a result event, emit an error
+        if not result_emitted:
+            rc = self.process.returncode or 1
+            yield {
+                "type": "function_result",
+                "result": f"Claude exited with code {rc} without producing a result. The session may have failed to resume.",
+                "is_error": True,
+            }
 
     async def cancel(self):
         """Kill the running Claude process."""
