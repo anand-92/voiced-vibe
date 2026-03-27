@@ -79,6 +79,9 @@ export class GeminiConnection {
           tools: [{ functionDeclarations }],
           speechConfig: {
             languageCode: this.languageCode,
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: "Algenib" },
+            },
           },
           outputAudioTranscription: {},
           inputAudioTranscription: {},
