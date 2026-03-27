@@ -43,7 +43,7 @@ export class NarrationConnection {
 
       const ai = new GoogleGenAI({
         apiKey: tokenRes.token,
-        httpOptions: { apiVersion: "v1beta" },
+        httpOptions: { apiVersion: "v1alpha" },
       });
 
       log("NARRATION", `Connecting model=${configRes.model}`);

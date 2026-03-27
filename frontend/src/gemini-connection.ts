@@ -53,7 +53,7 @@ export class GeminiConnection {
 
       const ai = new GoogleGenAI({
         apiKey: tokenRes.token,
-        httpOptions: { apiVersion: "v1beta" },
+        httpOptions: { apiVersion: "v1alpha" },
       });
 
       log("GEMINI", `Connecting model=${configRes.model} token_len=${tokenRes.token.length} prompt_len=${configRes.system_prompt.length} tools=${functionDeclarations.map(f => f.name).join(",")}`);
