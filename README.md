@@ -15,6 +15,14 @@
 
 Voice-first AI pair programmer. Talk to your codebase through Gemini Live, with Claude Code doing the heavy lifting.
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=f5d-LYL0LyI">
+    <img src="https://img.youtube.com/vi/f5d-LYL0LyI/maxresdefault.jpg" alt="VoiceClaw Demo" width="600">
+  </a>
+  <br>
+  <em>Watch the demo</em>
+</p>
+
 You speak naturally, Gemini understands your intent and orchestrates the right tools, Claude reads and writes your code, and a second Gemini narrates what's happening in real time so you're never left in silence.
 
 ## How It Works
