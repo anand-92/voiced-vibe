@@ -53,7 +53,7 @@ export class GeminiConnection {
 
       const ai = new GoogleGenAI({
         apiKey: tokenRes.token,
-        httpOptions: { apiVersion: "v1alpha" },
+        httpOptions: { apiVersion: "v1beta" },
       });
 
       log("GEMINI", `Connecting model=${configRes.model} token_len=${tokenRes.token.length} prompt_len=${configRes.system_prompt.length} tools=${functionDeclarations.map(f => f.name).join(",")}`);
@@ -88,15 +88,10 @@ export class GeminiConnection {
           realtimeInputConfig: {
             automaticActivityDetection: { disabled: true },
           },
-          maxOutputTokens: 8192,
-          thinkingConfig: {
-            thinkingBudget: 8192,
-            thinkingLevel: "high",
-          },
           contextWindowCompression: {
-            triggerTokens: "100000",
+            triggerTokens: 104857,
             slidingWindow: {
-              targetTokens: "80000",
+              targetTokens: 52428,
             },
           },
           sessionResumption: {

@@ -17,7 +17,7 @@ def create_ephemeral_token() -> dict:
 
     client = genai.Client(
         api_key=api_key,
-        http_options={"api_version": "v1alpha"},
+        http_options={"api_version": "v1beta"},
     )
 
     now = datetime.now(tz=timezone.utc)

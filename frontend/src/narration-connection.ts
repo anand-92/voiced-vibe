@@ -43,7 +43,7 @@ export class NarrationConnection {
 
       const ai = new GoogleGenAI({
         apiKey: tokenRes.token,
-        httpOptions: { apiVersion: "v1alpha" },
+        httpOptions: { apiVersion: "v1beta" },
       });
 
       log("NARRATION", `Connecting model=${configRes.model}`);
@@ -63,14 +63,9 @@ export class NarrationConnection {
           realtimeInputConfig: {
             automaticActivityDetection: { disabled: true },
           },
-          maxOutputTokens: 8192,
-          thinkingConfig: {
-            thinkingBudget: 8192,
-            thinkingLevel: "high",
-          },
           contextWindowCompression: {
-            triggerTokens: "100000",
-            slidingWindow: { targetTokens: "80000" },
+            triggerTokens: 104857,
+            slidingWindow: { targetTokens: 52428 },
           },
         },
         callbacks: {
