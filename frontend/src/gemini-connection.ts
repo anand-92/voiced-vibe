@@ -89,13 +89,13 @@ export class GeminiConnection {
             automaticActivityDetection: { disabled: true },
           },
           thinkingConfig: {
-            thinkingLevel: "high",
+            thinkingLevel: "high" as any,
             includeThoughts: true,
           },
           contextWindowCompression: {
-            triggerTokens: 104857,
+            triggerTokens: 104857 as any,
             slidingWindow: {
-              targetTokens: 52428,
+              targetTokens: 52428 as any,
             },
           },
           sessionResumption: {

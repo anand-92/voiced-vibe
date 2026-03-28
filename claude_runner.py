@@ -1,20 +1,107 @@
-"""Spawn claude -p, parse stream-json stdout, yield structured events."""
+"""Run Claude through the Agent SDK and yield structured events."""
 
 import asyncio
-import json
-import subprocess
-import threading
-from queue import Queue, Empty
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
+
+from claude_agent_sdk import (
+    AssistantMessage,
+    CLINotFoundError,
+    CLIJSONDecodeError,
+    ClaudeAgentOptions,
+    ProcessError,
+    ResultMessage,
+    SystemMessage,
+    query,
+)
+from claude_agent_sdk.types import StreamEvent, ThinkingBlock, ToolUseBlock
 
 
 class ClaudeRunner:
     def __init__(self, project_dir: str):
         self.project_dir = project_dir
         self.session_id: str | None = None
-        self.process: subprocess.Popen | None = None
         self.model: str = "opus"
         self.effort: str = "high"
+        self._cancel_requested = False
+
+    @staticmethod
+    def _parse_allowed_tools(allowed_tools: str | None) -> list[str]:
+        if not allowed_tools:
+            return []
+        return [tool.strip() for tool in allowed_tools.split(",") if tool.strip()]
+
+    def _build_options(
+        self,
+        mode: str,
+        allowed_tools: str | None,
+        permission_mode: str | None,
+    ) -> ClaudeAgentOptions:
+        return ClaudeAgentOptions(
+            model=self.model,
+            cwd=self.project_dir,
+            permission_mode=permission_mode or "bypassPermissions",
+            allowed_tools=self._parse_allowed_tools(allowed_tools),
+            system_prompt={"type": "preset", "preset": "claude_code"},
+            setting_sources=["project"],
+            include_partial_messages=mode != "ask",
+            extra_args={"--effort": self.effort},
+        )
+
+    def _extract_session_id(self, message: SystemMessage) -> str | None:
+        return message.data.get("session_id") or message.data.get("message_id")
+
+    async def _emit_message_events(
+        self,
+        message: Any,
+        *,
+        mode: str,
+    ) -> AsyncGenerator[dict, None]:
+        if isinstance(message, SystemMessage) and message.subtype == "init":
+            self.session_id = self._extract_session_id(message)
+            yield {
+                "type": "status",
+                "claude_running": True,
+                "session_id": self.session_id,
+            }
+            return
+
+        if mode != "ask" and isinstance(message, StreamEvent):
+            inner = message.event
+            if inner.get("type") == "content_block_delta":
+                delta = inner.get("delta", {})
+                if delta.get("type") == "thinking_delta" and delta.get("thinking"):
+                    yield {
+                        "type": "claude_event",
+                        "subtype": "thinking",
+                        "text": delta["thinking"],
+                    }
+            return
+
+        if mode != "ask" and isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, ThinkingBlock) and block.thinking:
+                    yield {
+                        "type": "claude_event",
+                        "subtype": "thinking",
+                        "text": block.thinking,
+                    }
+                elif isinstance(block, ToolUseBlock):
+                    yield {
+                        "type": "claude_event",
+                        "subtype": "tool_use",
+                        "tool": block.name,
+                        "input": block.input,
+                    }
+            return
+
+        if isinstance(message, ResultMessage):
+            self.session_id = message.session_id or self.session_id
+            yield {
+                "type": "function_result",
+                "result": message.result or "",
+                "is_error": message.is_error,
+                "session_id": self.session_id,
+            }
 
     async def run(
         self,
@@ -23,239 +110,54 @@ class ClaudeRunner:
         allowed_tools: str | None = None,
         permission_mode: str | None = None,
     ) -> AsyncGenerator[dict, None]:
-        """Run claude -p and yield parsed stream-json events.
-
-        mode="edit": full access, streams tool_use events
-        mode="ask": read-only, restricted tools, returns text answer
-        permission_mode: "plan", "acceptEdits", "bypassPermissions", etc.
-
-        Uses subprocess.Popen + threads to avoid Windows asyncio subprocess issues.
-        """
-        if mode == "ask":
-            cmd = [
-                "claude",
-                "-p",
-                instruction,
-                "--model", self.model,
-                "--effort", self.effort,
-                "--print",
-            ]
-        else:
-            cmd = [
-                "claude",
-                "-p",
-                instruction,
-                "--model", self.model,
-                "--effort", self.effort,
-                "--output-format",
-                "stream-json",
-                "--verbose",
-                "--include-partial-messages",
-            ]
-
-        # Always skip permissions — Claude runs non-interactively
-        cmd.append("--dangerously-skip-permissions")
-
-        if allowed_tools:
-            cmd.extend(["--allowedTools", allowed_tools])
-
-        if permission_mode:
-            cmd.extend(["--permission-mode", permission_mode])
-
-        # Don't resume sessions — each function call is independent
-        # Resuming stale sessions causes "No conversation found" errors
-
-        loop = asyncio.get_event_loop()
-        self.process = await loop.run_in_executor(
-            None,
-            lambda: subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=self.project_dir,
-            ),
-        )
-
-        # In ask mode, claude --print outputs plain text (not stream-json)
-        if mode == "ask":
-            stdout, _ = await loop.run_in_executor(None, self.process.communicate)
-            result_text = stdout.decode("utf-8").strip()
-            yield {
-                "type": "function_result",
-                "result": result_text,
-                "is_error": self.process.returncode != 0,
-            }
-            return
-
-        # In edit mode, read stdout lines via a thread + queue
-        queue: Queue = Queue()
-
-        def _reader():
-            assert self.process and self.process.stdout
-            for raw_line in self.process.stdout:
-                queue.put(raw_line)
-            queue.put(None)  # sentinel
-
-        def _stderr_reader():
-            assert self.process and self.process.stderr
-            for raw_line in self.process.stderr:
-                line = raw_line.decode("utf-8").strip()
-                if line:
-                    print(f"[claude stderr] {line}")
-
-        reader_thread = threading.Thread(target=_reader, daemon=True)
-        reader_thread.start()
-        stderr_thread = threading.Thread(target=_stderr_reader, daemon=True)
-        stderr_thread.start()
-
-        # Track active content blocks for stream_event deltas
-        active_blocks: dict[int, dict] = {}  # index -> {type, name, text, input}
+        """Run Claude via the Agent SDK and yield structured events."""
+        self._cancel_requested = False
         result_emitted = False
-        streamed_thinking = False  # True if thinking was emitted via stream_event
+        options = self._build_options(mode, allowed_tools, permission_mode)
+        stream = query(prompt=instruction, options=options)
 
-        while True:
-            raw_line = await loop.run_in_executor(None, queue.get)
-            if raw_line is None:
-                break
-
-            line = raw_line.decode("utf-8").strip()
-            if not line:
-                continue
-
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            event_type = event.get("type", "")
-
-            # Init event — extract session_id
-            if event_type == "system" and event.get("subtype") == "init":
-                self.session_id = event.get("session_id")
-                yield {
-                    "type": "status",
-                    "claude_running": True,
-                    "session_id": self.session_id,
-                }
-                continue
-
-            # ── stream_event: real-time intermediate events ──
-            if event_type == "stream_event":
-                inner = event.get("event", {})
-                inner_type = inner.get("type", "")
-
-                # content_block_start — new block beginning
-                if inner_type == "content_block_start":
-                    idx = inner.get("index", 0)
-                    block = inner.get("content_block", {})
-                    block_type = block.get("type", "")
-                    active_blocks[idx] = {
-                        "type": block_type,
-                        "name": block.get("name", ""),
-                        "text": "",
-                        "input": "",
-                    }
-
-                    # Emit tool_use immediately so it shows in timeline
-                    if block_type == "tool_use":
-                        yield {
-                            "type": "claude_event",
-                            "subtype": "tool_use",
-                            "tool": block.get("name", "unknown"),
-                            "input": block.get("input", {}),
-                        }
-
-                # content_block_delta — accumulate content
-                elif inner_type == "content_block_delta":
-                    idx = inner.get("index", 0)
-                    delta = inner.get("delta", {})
-                    delta_type = delta.get("type", "")
-                    block = active_blocks.get(idx, {})
-
-                    if delta_type == "thinking_delta":
-                        block["text"] = block.get("text", "") + delta.get("thinking", "")
-                    elif delta_type == "text_delta":
-                        block["text"] = block.get("text", "") + delta.get("text", "")
-                    elif delta_type == "input_json_delta":
-                        block["input"] = block.get("input", "") + delta.get("partial_json", "")
-
-                # content_block_stop — emit accumulated block
-                elif inner_type == "content_block_stop":
-                    idx = inner.get("index", 0)
-                    block = active_blocks.pop(idx, {})
-                    block_type = block.get("type", "")
-
-                    if block_type == "thinking" and block.get("text"):
-                        streamed_thinking = True
-                        yield {
-                            "type": "claude_event",
-                            "subtype": "thinking",
-                            "text": block["text"],
-                        }
-                    # Skip text blocks — same content appears in the
-                    # result event, so emitting here would duplicate it.
-                    elif block_type == "tool_use" and block.get("input"):
-                        # Re-emit with parsed input now that we have the full JSON
-                        try:
-                            parsed_input = json.loads(block["input"])
-                        except json.JSONDecodeError:
-                            parsed_input = {"raw": block["input"]}
-                        yield {
-                            "type": "claude_event",
-                            "subtype": "tool_use",
-                            "tool": block.get("name", "unknown"),
-                            "input": parsed_input,
-                        }
-
-                continue
-
-            # ── assistant: complete turn messages ──
-            # tool_use and text are already emitted via stream_event in
-            # real-time, so only extract thinking here (which may not
-            # appear in stream_event).
-            if event_type == "assistant":
-                if not streamed_thinking:
-                    content = event.get("message", {}).get("content", [])
-                    for item in content:
-                        if item.get("type") == "thinking" and item.get("thinking"):
-                            yield {
-                                "type": "claude_event",
-                                "subtype": "thinking",
-                                "text": item["thinking"],
-                            }
-                continue
-
-            # ── result: final output ──
-            if event_type == "result":
-                self.session_id = event.get("session_id", self.session_id)
-                result_emitted = True
-                result_text = event.get("result", "")
-                # Include errors array if result is empty
-                if not result_text and event.get("errors"):
-                    result_text = "; ".join(event["errors"])
-                yield {
-                    "type": "function_result",
-                    "result": result_text,
-                    "is_error": event.get("is_error", False),
-                    "session_id": self.session_id,
-                }
-
-        await loop.run_in_executor(None, self.process.wait)
-
-        # If Claude exited without emitting a result event, emit an error
-        if not result_emitted:
-            rc = self.process.returncode or 1
+        try:
+            async for message in stream:
+                if self._cancel_requested:
+                    break
+                async for event in self._emit_message_events(message, mode=mode):
+                    if event.get("type") == "function_result":
+                        result_emitted = True
+                    yield event
+        except asyncio.CancelledError:
+            self._cancel_requested = True
+            raise
+        except (CLINotFoundError, ProcessError, CLIJSONDecodeError) as exc:
             yield {
                 "type": "function_result",
-                "result": f"Claude exited with code {rc} without producing a result. The session may have failed to resume.",
+                "result": str(exc),
                 "is_error": True,
+                "session_id": self.session_id,
+            }
+            result_emitted = True
+        finally:
+            aclose = getattr(stream, "aclose", None)
+            if callable(aclose):
+                try:
+                    await aclose()
+                except Exception:
+                    pass
+
+        if self._cancel_requested and not result_emitted:
+            yield {
+                "type": "function_result",
+                "result": "Claude operation cancelled",
+                "is_error": True,
+                "session_id": self.session_id,
+            }
+        elif not result_emitted:
+            yield {
+                "type": "function_result",
+                "result": "Claude exited without producing a result.",
+                "is_error": True,
+                "session_id": self.session_id,
             }
 
     async def cancel(self):
-        """Kill the running Claude process."""
-        if self.process and self.process.returncode is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
+        """Request cancellation of the current Claude operation."""
+        self._cancel_requested = True

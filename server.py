@@ -29,6 +29,7 @@ function_router: FunctionRouter | None = None
 context_bridge = ContextBridge()
 session_manager: SessionManager | None = None
 git_checkpoint: GitCheckpoint | None = None
+active_claude_tasks: set[asyncio.Task] = set()
 
 
 def set_project(path: str):
@@ -234,14 +235,16 @@ async def get_context():
 
 @app.post("/api/cancel")
 async def cancel_claude():
-    """Kill any running Claude subprocess."""
-    if claude_runner and claude_runner.process:
-        try:
-            claude_runner.process.kill()
-            claude_runner.process = None
-            return {"ok": True, "message": "Claude operation cancelled"}
-        except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=500)
+    """Cancel any running Claude operation."""
+    if claude_runner:
+        await claude_runner.cancel()
+
+    tasks = [task for task in active_claude_tasks if not task.done()]
+    for task in tasks:
+        task.cancel()
+
+    if tasks:
+        return {"ok": True, "message": "Claude operation cancelled"}
     return {"ok": True, "message": "No operation running"}
 
 
@@ -265,23 +268,23 @@ async def handle_function_call(websocket: WebSocket, msg: dict):
     if name in ("code_task", "run_command") and git_checkpoint:
         git_checkpoint.create(label=f"{name}: {str(args)[:60]}")
 
-    async for event in function_router.route(name, args):
-        # Attach function call metadata to the final result
-        if event.get("type") == "function_result":
-            event["id"] = call_id
-            event["name"] = name
+    try:
+        async for event in function_router.route(name, args):
+            if event.get("type") == "function_result":
+                event["id"] = call_id
+                event["name"] = name
 
-            # Store in context bridge
-            context_bridge.store(name, args, event.get("result", ""))
+                context_bridge.store(name, args, event.get("result", ""))
 
-            # Update session ID
-            if session_manager and event.get("session_id"):
-                session_manager.claude_session_id = event["session_id"]
+                if session_manager and event.get("session_id"):
+                    session_manager.claude_session_id = event["session_id"]
 
-        try:
-            await websocket.send_json(event)
-        except Exception:
-            break
+            try:
+                await websocket.send_json(event)
+            except Exception:
+                break
+    except asyncio.CancelledError:
+        pass
 
 
 @app.websocket("/ws")
@@ -293,7 +296,9 @@ async def websocket_endpoint(websocket: WebSocket):
             msg = json.loads(raw)
 
             if msg.get("type") == "function_call":
-                asyncio.create_task(handle_function_call(websocket, msg))
+                task = asyncio.create_task(handle_function_call(websocket, msg))
+                active_claude_tasks.add(task)
+                task.add_done_callback(active_claude_tasks.discard)
             elif msg.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})
 

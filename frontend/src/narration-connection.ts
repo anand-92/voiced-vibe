@@ -64,11 +64,11 @@ export class NarrationConnection {
             automaticActivityDetection: { disabled: true },
           },
           thinkingConfig: {
-            thinkingLevel: "high",
+            thinkingLevel: "high" as any,
           },
           contextWindowCompression: {
-            triggerTokens: 104857,
-            slidingWindow: { targetTokens: 52428 },
+            triggerTokens: 104857 as any,
+            slidingWindow: { targetTokens: 52428 as any },
           },
         },
         callbacks: {

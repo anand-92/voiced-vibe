@@ -1,7 +1,3 @@
-// ── Gemini Function Declarations ──────────────────────────────
-// Using parametersJsonSchema (standard JSON Schema, lowercase types).
-// This is the latest recommended format per @google/genai SDK docs.
-
 import type { FunctionDeclaration } from "@google/genai";
 
 export const functionDeclarations: FunctionDeclaration[] = [
@@ -37,8 +33,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: "read_file",
-    description:
-      "Read and summarize a specific file from the user's project.",
+    description: "Read and summarize a specific file from the user's project.",
     parametersJsonSchema: {
       type: "object",
       properties: {
@@ -52,8 +47,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: "run_command",
-    description:
-      "Run a shell command in the user's project. Only call after user confirms.",
+    description: "Run a shell command in the user's project. Only call after user confirms.",
     parametersJsonSchema: {
       type: "object",
       properties: {
@@ -67,8 +61,7 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: "get_status",
-    description:
-      "Get current session status: what files changed, Claude state.",
+    description: "Get current session status: what files changed, Claude state.",
     parametersJsonSchema: {
       type: "object",
       properties: {},
@@ -178,9 +171,24 @@ export const functionDeclarations: FunctionDeclaration[] = [
   },
 ];
 
-// ── WebSocket Messages (Browser ↔ Backend) ───────────────────
+export type AppScreen = "picker" | "voice";
+export type TranscriptRole = "user" | "gemini" | "narrator";
+export type GeminiState = "idle" | "thinking" | "speaking" | "listening";
+export type VoiceMode = "toggle" | "always-on" | "push-to-talk";
+export type TimelineCategory =
+  | "gemini-thinking"
+  | "gemini-tool-call"
+  | "gemini-tool-result"
+  | "gemini-tool-error"
+  | "gemini-summarize"
+  | "claude-tool"
+  | "claude-done"
+  | "claude-error"
+  | "claude-thinking"
+  | "claude-text"
+  | "file-change"
+  | "status";
 
-/** Browser → Backend: forward a Gemini function call */
 export interface FunctionCallMessage {
   type: "function_call";
   id: string;
@@ -188,7 +196,6 @@ export interface FunctionCallMessage {
   args: Record<string, unknown>;
 }
 
-/** Backend → Browser: Claude tool use event */
 export interface ClaudeToolUseEvent {
   type: "claude_event";
   subtype: "tool_use";
@@ -197,7 +204,6 @@ export interface ClaudeToolUseEvent {
   timestamp?: string;
 }
 
-/** Backend → Browser: Claude text output */
 export interface ClaudeTextEvent {
   type: "claude_event";
   subtype: "text";
@@ -205,7 +211,6 @@ export interface ClaudeTextEvent {
   timestamp?: string;
 }
 
-/** Backend → Browser: function execution complete */
 export interface FunctionResultMessage {
   type: "function_result";
   id: string;
@@ -214,14 +219,12 @@ export interface FunctionResultMessage {
   is_error?: boolean;
 }
 
-/** Backend → Browser: status update */
 export interface StatusMessage {
   type: "status";
   claude_running: boolean;
   session_id: string | null;
 }
 
-/** Backend → Browser: Claude thinking output */
 export interface ClaudeThinkingEvent {
   type: "claude_event";
   subtype: "thinking";
@@ -234,8 +237,6 @@ export type BackendMessage =
   | ClaudeThinkingEvent
   | FunctionResultMessage
   | StatusMessage;
-
-// ── Config types ─────────────────────────────────────────────
 
 export interface ServerConfig {
   system_prompt: string;
@@ -250,3 +251,61 @@ export interface SessionState {
   gemini_handle: string | null;
   claude_session_id: string | null;
 }
+
+export interface BrowseDirectoryResponse {
+  current: string;
+  parent: string;
+  dirs: { name: string; path: string }[];
+  error?: string;
+}
+
+export interface ProjectResponse {
+  path: string | null;
+  active: boolean;
+  ok?: boolean;
+  error?: string;
+}
+
+export interface Checkpoint {
+  hash: string;
+  label: string;
+  when: string;
+}
+
+export interface TranscriptEntry {
+  id: string;
+  role: TranscriptRole;
+  text: string;
+}
+
+export interface AttachmentImage {
+  id: string;
+  mimeType: string;
+  data: string;
+  previewUrl: string;
+  name: string;
+}
+
+export interface TimelineEntryBase {
+  id: string;
+  category: TimelineCategory;
+  tag: string;
+  time: string;
+}
+
+export interface TimelineMessageEntry extends TimelineEntryBase {
+  type: "message";
+  detail: string;
+  renderMarkdown?: boolean;
+}
+
+export interface TimelineDiffEntry extends TimelineEntryBase {
+  type: "diff";
+  filePath: string;
+  oldStr: string;
+  newStr: string;
+}
+
+export type TimelineEntry = TimelineMessageEntry | TimelineDiffEntry;
+
+export type FilterState = Record<string, boolean>;
