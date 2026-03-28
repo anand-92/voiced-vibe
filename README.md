@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="VoiceClaw" width="120">
+  <img src="assets/logo.png" alt="Voiced Vibe" width="120">
 </p>
 
-<h1 align="center">VoiceClaw</h1>
+<h1 align="center">Voiced Vibe</h1>
 
 <p align="center"><strong>Voice Coding Agent powered by <a href="https://ai.google.dev/gemini-api/docs/models#gemini-3.1-flash-live">Gemini 3.1 Flash Live</a> and the <a href="https://docs.anthropic.com/en/docs/claude-code/sdk">Claude Agent SDK</a>.</strong></p>
 
@@ -15,7 +15,7 @@ Voice-first AI pair programmer. Talk to your codebase through Gemini Live, with 
 
 <p align="center">
   <a href="https://www.youtube.com/watch?v=f5d-LYL0LyI">
-    <img src="https://img.youtube.com/vi/f5d-LYL0LyI/maxresdefault.jpg" alt="VoiceClaw Demo" width="600">
+    <img src="https://img.youtube.com/vi/f5d-LYL0LyI/maxresdefault.jpg" alt="Voiced Vibe Demo" width="600">
   </a>
   <br>
   <em>Watch the demo</em>
@@ -120,7 +120,7 @@ python server.py [--project /path/to/project] [--port 3333]
 
 ## Available Voice Commands
 
-VoiceClaw exposes these tools to Gemini. You don't need to name them -- just speak naturally:
+Voiced Vibe exposes these tools to Gemini. You don't need to name them -- just speak naturally:
 
 | What you say | Tool used | What happens |
 |---|---|---|
@@ -177,7 +177,7 @@ voiced-vibe/
 
 ### Key Design Decisions
 
-- **Claude Agent SDK**: Instead of spawning a CLI subprocess, VoiceClaw uses `claude-agent-sdk` to run Claude programmatically. The `query()` async generator streams structured events (thinking blocks, tool use, results) directly into the backend, giving fine-grained control over session management, cancellation, and model switching.
+- **Claude Agent SDK**: Instead of spawning a CLI subprocess, Voiced Vibe uses `claude-agent-sdk` to run Claude programmatically. The `query()` async generator streams structured events (thinking blocks, tool use, results) directly into the backend, giving fine-grained control over session management, cancellation, and model switching.
 - **React component architecture**: The frontend is built with React and split into focused components (ProjectPicker, Sidebar, ChatArea, Inspector, TimelineCard) for maintainability. Framer Motion handles animations, and Tailwind CSS provides the styling.
 - **Browser to Gemini direct**: Voice audio never touches the Python backend. The browser opens a WebSocket directly to Gemini Live API using an ephemeral token, keeping latency minimal.
 - **Dual Gemini sessions**: The main session handles conversation and tool orchestration. A separate narration session provides spoken commentary while Claude works, so the user gets continuous feedback.
