@@ -1,27 +1,8 @@
-<p align="center">
-  <img src="assets/logo.png" alt="Voiced Vibe" width="120">
-</p>
+# Voiced Vibe
 
-<h1 align="center">Voiced Vibe</h1>
+**Voice Coding Agent powered by [Gemini 3.1 Flash Live](https://ai.google.dev/gemini-api/docs/models#gemini-3.1-flash-live) and the [Claude Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk).**
 
-<p align="center"><strong>Voice Coding Agent powered by <a href="https://ai.google.dev/gemini-api/docs/models#gemini-3.1-flash-live">Gemini 3.1 Flash Live</a> and the <a href="https://docs.anthropic.com/en/docs/claude-code/sdk">Claude Agent SDK</a>.</strong></p>
-
-<p align="center">
-  <a href="https://github.com/anand-92/voiced-vibe/blob/master/LICENSE"><img src="https://img.shields.io/github/license/anand-92/voiced-vibe" alt="License"></a>
-  <a href="https://github.com/anand-92/voiced-vibe/stargazers"><img src="https://img.shields.io/github/stars/anand-92/voiced-vibe" alt="GitHub Stars"></a>
-</p>
-
-Voice-first AI pair programmer. Talk to your codebase through Gemini Live, with Claude doing the heavy lifting via the Agent SDK.
-
-<p align="center">
-  <a href="https://www.youtube.com/watch?v=f5d-LYL0LyI">
-    <img src="https://img.youtube.com/vi/f5d-LYL0LyI/maxresdefault.jpg" alt="Voiced Vibe Demo" width="600">
-  </a>
-  <br>
-  <em>Watch the demo</em>
-</p>
-
-You speak naturally, Gemini understands your intent and orchestrates the right tools, Claude reads and writes your code through the Agent SDK, and a second Gemini session narrates what's happening in real time so you're never left in silence.
+Voice-first AI pair programmer. Talk to your codebase through Gemini Live, with Claude doing the heavy lifting via the Agent SDK. You speak naturally, Gemini understands your intent and orchestrates the right tools, Claude reads and writes your code through the Agent SDK, and a second Gemini session narrates what's happening in real time so you're never left in silence.
 
 ## How It Works
 
