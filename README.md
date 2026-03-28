@@ -4,16 +4,14 @@
 
 <h1 align="center">VoiceClaw</h1>
 
-<p align="center"><strong>The world's first Voice Coding Agent, powered by <a href="https://ai.google.dev/gemini-api/docs/models#gemini-3.1-flash-live">Gemini 3.1 Flash Live</a> and <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a>.</strong></p>
+<p align="center"><strong>Voice Coding Agent powered by <a href="https://ai.google.dev/gemini-api/docs/models#gemini-3.1-flash-live">Gemini 3.1 Flash Live</a> and the <a href="https://docs.anthropic.com/en/docs/claude-code/sdk">Claude Agent SDK</a>.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/yogen-ghodke-113/VoiceClaw/blob/master/LICENSE"><img src="https://img.shields.io/github/license/yogen-ghodke-113/VoiceClaw?v=2" alt="License"></a>
-  <a href="https://github.com/yogen-ghodke-113/VoiceClaw/stargazers"><img src="https://img.shields.io/github/stars/yogen-ghodke-113/VoiceClaw?v=2" alt="GitHub Stars"></a>
-  <a href="https://discord.gg/eqjtNPS2"><img src="https://img.shields.io/badge/Join%20Discord-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="https://www.linkedin.com/in/yogenghodke/"><img src="https://img.shields.io/badge/LinkedIn-0077B5?style=flat&logo=linkedin&logoColor=white" alt="LinkedIn"></a>
+  <a href="https://github.com/anand-92/voiced-vibe/blob/master/LICENSE"><img src="https://img.shields.io/github/license/anand-92/voiced-vibe" alt="License"></a>
+  <a href="https://github.com/anand-92/voiced-vibe/stargazers"><img src="https://img.shields.io/github/stars/anand-92/voiced-vibe" alt="GitHub Stars"></a>
 </p>
 
-Voice-first AI pair programmer. Talk to your codebase through Gemini Live, with Claude Code doing the heavy lifting.
+Voice-first AI pair programmer. Talk to your codebase through Gemini Live, with Claude doing the heavy lifting via the Agent SDK.
 
 <p align="center">
   <a href="https://www.youtube.com/watch?v=f5d-LYL0LyI">
@@ -23,7 +21,7 @@ Voice-first AI pair programmer. Talk to your codebase through Gemini Live, with 
   <em>Watch the demo</em>
 </p>
 
-You speak naturally, Gemini understands your intent and orchestrates the right tools, Claude reads and writes your code, and a second Gemini narrates what's happening in real time so you're never left in silence.
+You speak naturally, Gemini understands your intent and orchestrates the right tools, Claude reads and writes your code through the Agent SDK, and a second Gemini session narrates what's happening in real time so you're never left in silence.
 
 ## How It Works
 
@@ -35,13 +33,13 @@ Your Voice ──► Gemini Live API ──► Decides what to do
               Function Call (e.g. code_task, investigate_and_advise)
                     │
                     ▼
-             Python Backend ──► Claude Code CLI
+             Python Backend ──► Claude Agent SDK
                     │                │
                     │          Reads/writes code,
                     │          runs commands
                     │                │
                     ▼                ▼
-            Real-time events ──► Browser UI
+            Real-time events ──► React UI
                     │          (timeline, diffs, status)
                     ▼
            Narration Gemini ──► "Claude is reading the config file..."
@@ -50,34 +48,34 @@ Your Voice ──► Gemini Live API ──► Decides what to do
             Result back to Gemini ──► Speaks response to you
 ```
 
-**Voice path is zero-latency** — audio streams directly from your browser to Gemini's WebSocket. The Python backend only handles Claude orchestration.
+**Voice path is zero-latency** -- audio streams directly from your browser to Gemini's WebSocket. The Python backend only handles Claude orchestration via the Agent SDK.
 
 ## Features
 
-- **Voice-first** — speak naturally in 10 languages, Gemini responds with voice
-- **Real-time narration** — a second Gemini session provides live commentary while Claude works, so you're never waiting in silence
-- **Full code agent** — Claude Code reads, writes, and runs commands in your project
-- **Unified timeline** — filterable event log showing Gemini thinking, tool calls, Claude activity, and file changes
-- **Git checkpoints** — automatic snapshots before code changes, with voice-controlled rewind
-- **Session resumption** — Gemini and Claude sessions persist across page reloads
-- **Audio visualization** — Gemini-inspired wave renderer driven by real mic/speaker energy
-- **Screenshot support** — paste or attach images for visual context
-- **Model switching** — change Claude model (opus/sonnet/haiku) and reasoning effort by voice
-- **New Chat** — clear all context and start a fresh session with one click
+- **Voice-first** -- speak naturally in 10 languages, Gemini responds with voice
+- **Claude Agent SDK** -- integrates Claude through the official SDK with async streaming, structured events, and session management (no subprocess spawning)
+- **React UI** -- modern component-based frontend built with React, Tailwind CSS, and Framer Motion
+- **Real-time narration** -- a second Gemini session provides live commentary while Claude works
+- **Unified timeline** -- filterable inspector panel showing Gemini thinking, tool calls, Claude activity, and file diffs
+- **Git checkpoints** -- automatic snapshots before code changes, with voice-controlled rewind
+- **Session resumption** -- Gemini and Claude sessions persist across page reloads
+- **Audio visualization** -- wave renderer driven by real mic/speaker energy
+- **Screenshot support** -- paste or attach images for visual context
+- **Model switching** -- change Claude model (opus/sonnet/haiku) and reasoning effort by voice
 
 ## Prerequisites
 
 - **Python 3.11+**
 - **Node.js 18+**
-- **Claude Code CLI** — installed and authenticated ([docs](https://docs.anthropic.com/en/docs/claude-code))
-- **Gemini API key** — free from [Google AI Studio](https://aistudio.google.com/app/apikey)
+- **Claude Code CLI** -- installed and authenticated ([docs](https://docs.anthropic.com/en/docs/claude-code/sdk))
+- **Gemini API key** -- free from [Google AI Studio](https://aistudio.google.com/app/apikey)
 
 ## Quick Start
 
 ```bash
 # Clone
-git clone https://github.com/YourUsername/VoiceClaw.git
-cd VoiceClaw
+git clone https://github.com/anand-92/voiced-vibe.git
+cd voiced-vibe
 
 # Python dependencies
 pip install -r requirements.txt
@@ -100,10 +98,10 @@ Open **http://localhost:3333** in your browser, select a project folder, and sta
 Run frontend and backend separately for hot-reload:
 
 ```bash
-# Terminal 1 — backend
+# Terminal 1 -- backend
 python server.py --port 3333
 
-# Terminal 2 — frontend (proxies API to backend)
+# Terminal 2 -- frontend (proxies API to backend)
 cd frontend && npm run dev
 ```
 
@@ -122,7 +120,7 @@ python server.py [--project /path/to/project] [--port 3333]
 
 ## Available Voice Commands
 
-VoiceClaw exposes these tools to Gemini. You don't need to name them — just speak naturally:
+VoiceClaw exposes these tools to Gemini. You don't need to name them -- just speak naturally:
 
 | What you say | Tool used | What happens |
 |---|---|---|
@@ -141,9 +139,9 @@ VoiceClaw exposes these tools to Gemini. You don't need to name them — just sp
 ## Architecture
 
 ```
-VoiceClaw/
+voiced-vibe/
 ├── server.py                 # FastAPI backend, WebSocket relay, REST API
-├── claude_runner.py          # Spawns "claude -p" CLI, parses stream-json
+├── claude_runner.py          # Claude Agent SDK integration (async streaming)
 ├── function_router.py        # Routes Gemini function calls to Claude
 ├── checkpoint.py             # Git checkpointing & session persistence
 ├── context_bridge.py         # Recent Claude activity context
@@ -154,15 +152,23 @@ VoiceClaw/
 │   └── narration_system.md   # Narrator personality prompt
 ├── frontend/
 │   ├── src/
-│   │   ├── main.ts           # App orchestration
-│   │   ├── gemini-connection.ts  # Gemini Live WebSocket
-│   │   ├── narration-connection.ts  # Commentary session
-│   │   ├── audio-manager.ts  # Mic capture & speaker playback
-│   │   ├── backend-connection.ts  # Backend WebSocket
-│   │   ├── ui.ts             # DOM, transcript, timeline
-│   │   ├── wave-renderer.ts  # Audio visualization
-│   │   ├── types.ts          # Interfaces & function declarations
-│   │   └── debug-log.ts      # Ctrl+Shift+D to download logs
+│   │   ├── App.tsx               # Root component (state & connection logic)
+│   │   ├── main.tsx              # React entry point
+│   │   ├── constants.ts          # Filter groups, languages, modes
+│   │   ├── utils.ts              # Shared utility functions
+│   │   ├── components/
+│   │   │   ├── ProjectPicker.tsx     # Workspace selection screen
+│   │   │   ├── Sidebar.tsx           # Voice controls & settings
+│   │   │   ├── ChatArea.tsx          # Transcript & message composer
+│   │   │   ├── Inspector.tsx         # Filterable timeline panel
+│   │   │   └── TimelineCard.tsx      # Timeline event card (message & diff)
+│   │   ├── gemini-connection.ts      # Gemini Live WebSocket
+│   │   ├── narration-connection.ts   # Commentary session
+│   │   ├── audio-manager.ts          # Mic capture & speaker playback
+│   │   ├── backend-connection.ts     # Backend WebSocket
+│   │   ├── wave-renderer.ts          # Audio visualization
+│   │   ├── types.ts                  # Interfaces & function declarations
+│   │   └── debug-log.ts             # Ctrl+Shift+D to download logs
 │   ├── index.html
 │   ├── vite.config.ts
 │   └── package.json
@@ -171,8 +177,9 @@ VoiceClaw/
 
 ### Key Design Decisions
 
-- **Browser → Gemini direct**: Voice audio never touches the Python backend. The browser opens a WebSocket directly to Gemini Live API using an ephemeral token. This keeps latency minimal.
-- **Claude via CLI**: Instead of the API, VoiceClaw spawns `claude -p` as a subprocess. This gives full access to Claude Code's tool suite (file read/write, shell, LSP) without reimplementing any of it.
+- **Claude Agent SDK**: Instead of spawning a CLI subprocess, VoiceClaw uses `claude-agent-sdk` to run Claude programmatically. The `query()` async generator streams structured events (thinking blocks, tool use, results) directly into the backend, giving fine-grained control over session management, cancellation, and model switching.
+- **React component architecture**: The frontend is built with React and split into focused components (ProjectPicker, Sidebar, ChatArea, Inspector, TimelineCard) for maintainability. Framer Motion handles animations, and Tailwind CSS provides the styling.
+- **Browser to Gemini direct**: Voice audio never touches the Python backend. The browser opens a WebSocket directly to Gemini Live API using an ephemeral token, keeping latency minimal.
 - **Dual Gemini sessions**: The main session handles conversation and tool orchestration. A separate narration session provides spoken commentary while Claude works, so the user gets continuous feedback.
 - **Function routing**: Different functions give Claude different permission levels. `investigate_and_advise` is read-only, `code_task` gets full edit access, `run_command` gets shell access.
 
@@ -186,15 +193,6 @@ Press **Ctrl+Shift+D** in the browser to download a detailed event log. Logs inc
 |----------|----------|-------------|
 | `GEMINI_API_KEY` | Yes | API key from [Google AI Studio](https://aistudio.google.com/app/apikey) |
 
-## Community
-
-- [Discord](https://discord.gg/eqjtNPS2) — join for help, feature discussions, and demos
-- [LinkedIn](https://www.linkedin.com/in/yogenghodke/) — follow for updates
-
-## Disclaimer
-
-> **VoiceClaw is an open-source project hosted exclusively on this GitHub repository. We do NOT own, operate, or are affiliated with any website using the "VoiceClaw" name, including but not limited to voiceclaw.io or any similar domains. The only official source for VoiceClaw is this repository: [github.com/yogen-ghodke-113/VoiceClaw](https://github.com/yogen-ghodke-113/VoiceClaw). Exercise caution with any other source claiming to be VoiceClaw.**
-
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE) for details.
+Apache License 2.0 -- see [LICENSE](LICENSE) for details.
