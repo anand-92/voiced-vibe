@@ -9,3 +9,7 @@ __pycache__/
 *.log
 *.pdf
 package-lock.json
+
+# Swift / SPM
+VoicedVibe/.build/
+VoicedVibe/build/
