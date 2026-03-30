@@ -72,8 +72,10 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc sign for development
-codesign --force --sign - "$APP_BUNDLE" 2>/dev/null || true
+# Sign with hardened runtime + entitlements (enables mic permission dialog without sandbox restrictions)
+echo "==> Signing with hardened runtime..."
+codesign --force --sign - --options runtime --entitlements "$PROJECT_DIR/VoicedVibe.entitlements" "$MACOS_DIR/$APP_NAME"
+codesign --force --sign - --options runtime --entitlements "$PROJECT_DIR/VoicedVibe.entitlements" "$APP_BUNDLE"
 
 echo "==> Built: $APP_BUNDLE"
 echo "==> Binary size: $(du -sh "$MACOS_DIR/$APP_NAME" | cut -f1)"

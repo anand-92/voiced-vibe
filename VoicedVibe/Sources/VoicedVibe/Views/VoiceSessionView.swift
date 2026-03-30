@@ -15,10 +15,5 @@ struct VoiceSessionView: View {
 
             InspectorView()
         }
-        .onKeyPress(.space) {
-            guard appState.mode != .alwaysOn else { return .ignored }
-            appState.audioManager.toggleCapture()
-            return .handled
-        }
     }
 }

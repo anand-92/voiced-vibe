@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let narrationLogger = Logger(subsystem: "com.voicedvibe", category: "NarrationConnection")
 
 protocol NarrationConnectionDelegate: AnyObject, Sendable {
     @MainActor func narrationDidReceiveAudio(base64: String)
@@ -32,7 +35,7 @@ actor NarrationConnection {
             let token = try await fetchToken()
             let config = try await fetchNarrationConfig()
 
-            let wsURLString = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=\(token.token)"
+            let wsURLString = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=\(token.token)"
 
             guard let url = URL(string: wsURLString) else { return }
 
@@ -125,16 +128,18 @@ actor NarrationConnection {
                     ],
                 ] as [String: Any],
                 "systemInstruction": [
+                    "role": "user",
                     "parts": [["text": systemPrompt]],
-                ],
+                ] as [String: Any],
                 "realtimeInputConfig": [
                     "automaticActivityDetection": ["disabled": true],
                 ],
                 "contextWindowCompression": [
                     "triggerTokens": 104857,
                     "slidingWindow": ["targetTokens": 52428],
-                ],
+                ] as [String: Any],
                 "outputAudioTranscription": [:] as [String: Any],
+                "sessionResumption": [:] as [String: Any],
             ] as [String: Any],
         ]
     }

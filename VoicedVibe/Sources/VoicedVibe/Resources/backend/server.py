@@ -184,24 +184,20 @@ async def set_claude_config(request: Request):
 
     data = await request.json()
     model = data.get("model", "").strip()
-    effort = data.get("effort", "").strip()
 
     valid_models = {"opus", "sonnet", "haiku"}
-    valid_efforts = {"low", "medium", "high", "max"}
 
     if model and model in valid_models:
         claude_runner.model = model
-    if effort and effort in valid_efforts:
-        claude_runner.effort = effort
 
-    return {"model": claude_runner.model, "effort": claude_runner.effort}
+    return {"model": claude_runner.model}
 
 
 @app.get("/api/claude-config")
 async def get_claude_config():
     if not claude_runner:
-        return {"model": "opus", "effort": "medium"}
-    return {"model": claude_runner.model, "effort": claude_runner.effort}
+        return {"model": "opus"}
+    return {"model": claude_runner.model}
 
 
 @app.get("/api/checkpoints")

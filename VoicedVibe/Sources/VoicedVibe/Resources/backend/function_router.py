@@ -1,4 +1,4 @@
-"""Map Gemini function calls to claude -p invocations."""
+"""Map Gemini function calls to Claude Agent SDK invocations."""
 
 from typing import AsyncGenerator
 

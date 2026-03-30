@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "com.voicedvibe", category: "GeminiConnection")
 
 protocol GeminiConnectionDelegate: AnyObject, Sendable {
     @MainActor func geminiDidReceiveTranscript(role: TranscriptRole, text: String)
@@ -17,9 +20,14 @@ actor GeminiConnection {
     private var sessionHandle: String?
     private weak var delegate: GeminiConnectionDelegate?
     private var reconnecting = false
+    private var intentionalDisconnect = false
     private var languageCode: String
     private var backendBaseURL: String
     private var isConnected = false
+    private var setupCompleted = false
+    private var reconnectAttempts = 0
+    private let maxReconnectAttempts = 10
+    private var audioChunkCount = 0
 
     init(delegate: GeminiConnectionDelegate, languageCode: String, backendBaseURL: String) {
         self.delegate = delegate
@@ -28,50 +36,73 @@ actor GeminiConnection {
     }
 
     func connect() async {
+        intentionalDisconnect = false
+
         do {
+            logger.info("Fetching token and config...")
             let token = try await fetchToken()
             let config = try await fetchConfig()
             let session = try await fetchSession()
 
             if let handle = session?.gemini_handle {
                 sessionHandle = handle
+                logger.info("Resuming session: \(handle.prefix(20))...")
             }
 
             let model = config.model
-            let wsURLString = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=\(token.token)"
+            let wsURLString = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=\(token.token)"
 
             guard let url = URL(string: wsURLString) else {
-                print("[GeminiConnection] Invalid WebSocket URL")
+                logger.error("Invalid WebSocket URL")
                 return
             }
 
-            let session2 = URLSession(configuration: .default)
-            let task = session2.webSocketTask(with: url)
+            let urlSession = URLSession(configuration: .default)
+            let task = urlSession.webSocketTask(with: url)
             webSocketTask = task
+            setupCompleted = false
             task.resume()
 
-            isConnected = true
-            await delegate?.geminiDidConnect()
+            logger.info("WebSocket connecting to model=\(model)...")
 
-            let setupMessage = buildSetupMessage(model: model, systemPrompt: config.system_prompt)
-            try await sendJSON(setupMessage)
-
+            // Start receive loop FIRST so we can catch setupComplete
             receiveLoop()
+
+            // Send setup message
+            let setupMessage = buildSetupMessage(model: model, systemPrompt: config.system_prompt)
+
+            // Log the setup message for debugging (truncated)
+            if let setupData = try? JSONSerialization.data(withJSONObject: setupMessage, options: .fragmentsAllowed),
+               let setupStr = String(data: setupData, encoding: .utf8) {
+                logger.info("Sending setup (\(setupStr.count) chars): \(String(setupStr.prefix(300)))...")
+            }
+
+            try await sendJSON(setupMessage)
+            logger.info("Setup message sent, waiting for setupComplete...")
+
+            reconnectAttempts = 0
         } catch {
-            print("[GeminiConnection] Connect failed: \(error)")
+            logger.error("Connect failed: \(error.localizedDescription)")
             await delegate?.geminiDidDisconnect()
             scheduleReconnect()
         }
     }
 
     func disconnect() {
-        reconnecting = true
+        intentionalDisconnect = true
+        reconnecting = false
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         isConnected = false
+        setupCompleted = false
     }
 
     func sendAudio(_ base64Pcm: String) {
+        guard setupCompleted else { return }
+        audioChunkCount += 1
+        if audioChunkCount == 1 || audioChunkCount.isMultiple(of: 50) {
+            logger.info("Sending audio chunk #\(self.audioChunkCount), size=\(base64Pcm.count)")
+        }
         let msg: [String: Any] = [
             "realtimeInput": [
                 "audio": [
@@ -84,6 +115,8 @@ actor GeminiConnection {
     }
 
     func sendText(_ text: String) {
+        guard setupCompleted else { return }
+        logger.info("Sending text input, size=\(text.count)")
         let msg: [String: Any] = [
             "realtimeInput": ["text": text],
         ]
@@ -91,6 +124,7 @@ actor GeminiConnection {
     }
 
     func sendActivityStart() {
+        guard setupCompleted else { return }
         let msg: [String: Any] = [
             "realtimeInput": ["activityStart": [:] as [String: Any]],
         ]
@@ -98,6 +132,7 @@ actor GeminiConnection {
     }
 
     func sendActivityEnd() {
+        guard setupCompleted else { return }
         let msg: [String: Any] = [
             "realtimeInput": ["activityEnd": [:] as [String: Any]],
         ]
@@ -105,6 +140,7 @@ actor GeminiConnection {
     }
 
     func sendFunctionResponse(id: String, name: String, result: String) {
+        guard setupCompleted else { return }
         let msg: [String: Any] = [
             "toolResponse": [
                 "functionResponses": [
@@ -122,45 +158,46 @@ actor GeminiConnection {
     // MARK: - Private
 
     private func buildSetupMessage(model: String, systemPrompt: String) -> [String: Any] {
-        var sessionConfig: [String: Any] = [:]
-        if let handle = sessionHandle {
-            sessionConfig["handle"] = handle
-        }
-
-        return [
-            "setup": [
-                "model": "models/\(model)",
-                "generationConfig": [
-                    "responseModalities": ["AUDIO"],
-                    "speechConfig": [
-                        "languageCode": languageCode,
-                        "voiceConfig": [
-                            "prebuiltVoiceConfig": ["voiceName": "Algenib"],
-                        ],
-                    ] as [String: Any],
-                    "thinkingConfig": [
-                        "thinkingLevel": "HIGH",
-                        "includeThoughts": true,
+        var setupDict: [String: Any] = [
+            "model": "models/\(model)",
+            "generationConfig": [
+                "responseModalities": ["AUDIO"],
+                "speechConfig": [
+                    "languageCode": languageCode,
+                    "voiceConfig": [
+                        "prebuiltVoiceConfig": ["voiceName": "Algenib"],
                     ],
                 ] as [String: Any],
-                "systemInstruction": [
-                    "parts": [["text": systemPrompt]],
+                "thinkingConfig": [
+                    "thinkingLevel": "HIGH",
+                    "includeThoughts": true,
                 ],
-                "tools": [
-                    ["functionDeclarations": geminiFunctionDeclarations],
-                ],
-                "realtimeInputConfig": [
-                    "automaticActivityDetection": ["disabled": true],
-                ],
-                "contextWindowCompression": [
-                    "triggerTokens": 104857,
-                    "slidingWindow": ["targetTokens": 52428],
-                ],
-                "outputAudioTranscription": [:] as [String: Any],
-                "inputAudioTranscription": [:] as [String: Any],
-                "sessionResumption": sessionConfig,
             ] as [String: Any],
+            "systemInstruction": [
+                "role": "user",
+                "parts": [["text": systemPrompt]],
+            ] as [String: Any],
+            "tools": [
+                ["functionDeclarations": geminiFunctionDeclarations],
+            ],
+            "realtimeInputConfig": [
+                "automaticActivityDetection": ["disabled": true],
+            ],
+            "contextWindowCompression": [
+                "triggerTokens": 104857,
+                "slidingWindow": ["targetTokens": 52428],
+            ] as [String: Any],
+            "outputAudioTranscription": [:] as [String: Any],
+            "inputAudioTranscription": [:] as [String: Any],
         ]
+
+        if let handle = sessionHandle {
+            setupDict["sessionResumption"] = ["handle": handle]
+        } else {
+            setupDict["sessionResumption"] = [:] as [String: Any]
+        }
+
+        return ["setup": setupDict]
     }
 
     private func receiveLoop() {
@@ -185,7 +222,7 @@ actor GeminiConnection {
                     await self.receiveLoop()
 
                 case .failure(let error):
-                    print("[GeminiConnection] Receive error: \(error)")
+                    logger.error("Receive error: \(error.localizedDescription)")
                     await self.handleDisconnect()
                 }
             }
@@ -195,13 +232,26 @@ actor GeminiConnection {
     private func handleMessage(_ text: String) async {
         guard let data = text.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return }
+        else {
+            logger.warning("Failed to parse message: \(text.prefix(200))")
+            return
+        }
+
+        // Setup complete -- NOW we're truly connected
+        if json["setupComplete"] != nil {
+            setupCompleted = true
+            isConnected = true
+            logger.info("Setup complete -- fully connected")
+            await delegate?.geminiDidConnect()
+            return
+        }
 
         // Session resumption
         if let update = json["sessionResumptionUpdate"] as? [String: Any],
            let resumable = update["resumable"] as? Bool, resumable,
            let newHandle = update["newHandle"] as? String {
             sessionHandle = newHandle
+            logger.info("Session handle updated: \(newHandle.prefix(20))...")
             Task {
                 try? await persistSessionHandle(newHandle)
             }
@@ -214,13 +264,16 @@ actor GeminiConnection {
             for part in parts {
                 if let inlineData = part["inlineData"] as? [String: Any],
                    let audioData = inlineData["data"] as? String {
+                    let mimeType = inlineData["mimeType"] as? String ?? "unknown"
+                    logger.info("Received audio output chunk, mimeType=\(mimeType), size=\(audioData.count)")
                     await delegate?.geminiStateChanged(.speaking)
                     await delegate?.geminiDidReceiveAudio(base64: audioData)
-                } else if let _ = part["thought"] as? Bool, let text = part["text"] as? String {
+                } else if part["thought"] != nil, let partText = part["text"] as? String {
                     await delegate?.geminiStateChanged(.thinking)
-                    await delegate?.geminiDidReceiveThinking(text: text)
-                } else if let text = part["text"] as? String {
-                    await delegate?.geminiDidReceiveTranscript(role: .gemini, text: text)
+                    await delegate?.geminiDidReceiveThinking(text: partText)
+                } else if let partText = part["text"] as? String {
+                    logger.info("Received text output, size=\(partText.count)")
+                    await delegate?.geminiDidReceiveTranscript(role: .gemini, text: partText)
                 }
             }
         }
@@ -228,15 +281,17 @@ actor GeminiConnection {
         // Input transcription
         if let serverContent = json["serverContent"] as? [String: Any],
            let inputTranscription = serverContent["inputTranscription"] as? [String: Any],
-           let text = inputTranscription["text"] as? String {
-            await delegate?.geminiDidReceiveTranscript(role: .user, text: text)
+           let transcriptText = inputTranscription["text"] as? String {
+            logger.info("Received input transcription, size=\(transcriptText.count)")
+            await delegate?.geminiDidReceiveTranscript(role: .user, text: transcriptText)
         }
 
         // Output transcription
         if let serverContent = json["serverContent"] as? [String: Any],
            let outputTranscription = serverContent["outputTranscription"] as? [String: Any],
-           let text = outputTranscription["text"] as? String {
-            await delegate?.geminiDidReceiveTranscript(role: .gemini, text: text)
+           let transcriptText = outputTranscription["text"] as? String {
+            logger.info("Received output transcription, size=\(transcriptText.count)")
+            await delegate?.geminiDidReceiveTranscript(role: .gemini, text: transcriptText)
         }
 
         // Interrupted
@@ -264,24 +319,56 @@ actor GeminiConnection {
                 await delegate?.geminiDidReceiveFunctionCall(id: id, name: name, argsJSON: argsJSON)
             }
         }
+
+        // Log unrecognized top-level keys for debugging
+        let knownKeys: Set<String> = ["setupComplete", "serverContent", "toolCall", "sessionResumptionUpdate"]
+        let unknownKeys = Set(json.keys).subtracting(knownKeys)
+        if !unknownKeys.isEmpty {
+            logger.info("Unhandled message keys: \(unknownKeys.joined(separator: ", "))")
+        }
     }
 
     private func handleDisconnect() async {
+        let wasConnected = isConnected
         isConnected = false
+        setupCompleted = false
         webSocketTask = nil
-        await delegate?.geminiDidDisconnect()
 
-        if !reconnecting {
+        if wasConnected {
+            await delegate?.geminiDidDisconnect()
+        }
+
+        // If session handle caused a 1008, clear it
+        if !intentionalDisconnect {
             scheduleReconnect()
         }
     }
 
     private func scheduleReconnect() {
-        guard !reconnecting else { return }
+        guard !reconnecting, !intentionalDisconnect else { return }
+        reconnectAttempts += 1
+
+        if reconnectAttempts > maxReconnectAttempts {
+            logger.error("Max reconnect attempts reached (\(self.maxReconnectAttempts)), giving up")
+            return
+        }
+
         reconnecting = true
+        let delay = min(3.0 * Double(reconnectAttempts), 30.0)
+        logger.info("Reconnecting in \(delay)s (attempt \(self.reconnectAttempts)/\(self.maxReconnectAttempts))...")
+
         Task {
-            try? await Task.sleep(for: .seconds(3))
+            try? await Task.sleep(for: .seconds(delay))
             reconnecting = false
+            guard !intentionalDisconnect else { return }
+
+            // Clear stale session handle on reconnect to avoid loops
+            if reconnectAttempts > 2, sessionHandle != nil {
+                logger.info("Clearing stale session handle after \(self.reconnectAttempts) attempts")
+                sessionHandle = nil
+                try? await persistSessionHandle("")
+            }
+
             await connect()
         }
     }
@@ -315,7 +402,8 @@ actor GeminiConnection {
         var request = URLRequest(url: URL(string: "\(backendBaseURL)/api/session")!)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["gemini_handle": handle])
+        let body: Any = handle.isEmpty ? NSNull() : handle
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["gemini_handle": body])
         _ = try await URLSession.shared.data(for: request)
     }
 }

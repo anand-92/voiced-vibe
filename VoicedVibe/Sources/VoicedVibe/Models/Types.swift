@@ -21,24 +21,25 @@ enum GeminiVisualState: String, Sendable {
     case listening
 }
 
+enum MicPermission: Sendable {
+    case unknown
+    case granted
+    case denied
+    case restricted
+}
+
 enum VoiceMode: String, CaseIterable, Sendable {
-    case toggle
-    case alwaysOn = "always-on"
-    case pushToTalk = "push-to-talk"
+    case live
 
     var label: String {
         switch self {
-        case .toggle: "Toggle"
-        case .alwaysOn: "Always-On"
-        case .pushToTalk: "Push-to-Talk"
+        case .live: "Live"
         }
     }
 
     var hint: String {
         switch self {
-        case .toggle: "Tap Space to Talk"
-        case .alwaysOn: "Listening..."
-        case .pushToTalk: "Hold Space to Talk"
+        case .live: "Listening..."
         }
     }
 }
@@ -310,12 +311,11 @@ nonisolated(unsafe) let geminiFunctionDeclarations: [[String: Any]] = [
     ],
     [
         "name": "set_claude_model",
-        "description": "Change the Claude AI model and/or reasoning effort.",
+        "description": "Change the Claude AI model.",
         "parametersJsonSchema": [
             "type": "object",
             "properties": [
                 "model": ["type": "string", "enum": ["opus", "sonnet", "haiku"]],
-                "effort": ["type": "string", "enum": ["low", "medium", "high", "max"]],
             ] as [String: Any],
         ] as [String: Any],
     ],

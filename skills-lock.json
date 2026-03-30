@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "skills": {
+    "macos-design-guidelines": {
+      "source": "ehmo/platform-design-skills",
+      "sourceType": "github",
+      "computedHash": "fdbeb208feb60e5ed08226e4e1e714eade6cfe6530ad27c792992823de63ca0d"
+    },
+    "macos-development": {
+      "source": "rshankras/claude-code-apple-skills",
+      "sourceType": "github",
+      "computedHash": "ff7fba1c081a1efb29e67526abc4e281fbb482f10e2b364f11fbbe85c2d34e05"
+    },
+    "macos-spm-app-packaging": {
+      "source": "dimillian/skills",
+      "sourceType": "github",
+      "computedHash": "dd9fba9ca23b45f1c12db08470da9726b294bd6fb334f63d3447872efdf392c3"
+    },
+    "ui-ux-master": {
+      "source": "kdbhalala/ui-ux-master",
+      "sourceType": "github",
+      "computedHash": "5eed5339c3a5c82c8d7922b84989338f50024cbc1c808f49e1d1b7cd4ccc4b46"
+    }
+  }
+}

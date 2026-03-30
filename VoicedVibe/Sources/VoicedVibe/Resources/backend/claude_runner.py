@@ -1,4 +1,4 @@
-"""Run Claude through the Agent SDK and yield structured events."""
+"""Run Claude via the Claude Agent SDK and yield structured events."""
 
 import asyncio
 from typing import Any, AsyncGenerator
@@ -21,7 +21,6 @@ class ClaudeRunner:
         self.project_dir = project_dir
         self.session_id: str | None = None
         self.model: str = "opus"
-        self.effort: str = "high"
         self._cancel_requested = False
 
     @staticmethod
@@ -44,7 +43,6 @@ class ClaudeRunner:
             system_prompt={"type": "preset", "preset": "claude_code"},
             setting_sources=["project"],
             include_partial_messages=mode != "ask",
-            extra_args={"--effort": self.effort},
         )
 
     def _extract_session_id(self, message: SystemMessage) -> str | None:

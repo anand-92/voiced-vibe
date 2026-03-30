@@ -1,0 +1,60 @@
+{
+  "name": "ui-ux-master",
+  "version": "1.0.0",
+  "displayName": "UI/UX Master",
+  "description": "Master UI/UX design skill combining Apple HIG, modern web design, SuperDesign patterns, and universal design principles for creating exceptional interfaces across all platforms.",
+  "author": {
+    "name": "Krunal Bhalala",
+    "email": "contact@example.com",
+    "url": "https://github.com/kdbhalala"
+  },
+  "keywords": [
+    "ui",
+    "ux",
+    "design",
+    "apple",
+    "hig",
+    "ios",
+    "macos",
+    "web-design",
+    "responsive",
+    "accessibility",
+    "wcag",
+    "color-systems",
+    "typography",
+    "dark-mode",
+    "glassmorphism",
+    "superdesign"
+  ],
+  "categories": [
+    "design",
+    "development",
+    "accessibility"
+  ],
+  "platforms": [
+    "ios",
+    "macos",
+    "watchos",
+    "web"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kdbhalala/ui-ux-master.git"
+  },
+  "homepage": "https://github.com/kdbhalala/ui-ux-master",
+  "bugs": {
+    "url": "https://github.com/kdbhalala/ui-ux-master/issues"
+  },
+  "compatibility": {
+    "agentSkills": "1.0",
+    "clawdbot": ">=2024.1.0"
+  },
+  "metadata": {
+    "emoji": "🎨",
+    "clawdbot": {
+      "emoji": "🎨",
+      "autoLoad": false
+    }
+  }
+}

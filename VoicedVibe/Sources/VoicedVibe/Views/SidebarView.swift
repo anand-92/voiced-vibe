@@ -35,7 +35,7 @@ struct SidebarView: View {
 
                 VStack(spacing: 12) {
                     Button {
-                        appState.audioManager.toggleCapture()
+                        // Always-live mode; mic stays on automatically.
                     } label: {
                         Image(systemName: "mic.fill")
                             .font(.system(size: 22))
@@ -49,15 +49,37 @@ struct SidebarView: View {
                     }
                     .buttonStyle(.plain)
 
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(appState.statusTone)
-                            .frame(width: 7, height: 7)
-                            .shadow(color: appState.statusTone.opacity(0.5), radius: 4)
-
-                        Text(appState.statusText)
+                    if appState.micPermission == .denied || appState.micPermission == .restricted {
+                        VStack(spacing: 6) {
+                            Image(systemName: "mic.slash.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.red)
+                            Text("Microphone access denied")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.red.opacity(0.9))
+                            Button("Open System Settings") {
+                                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
+                            .buttonStyle(.bordered)
+                            .tint(.red)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(appState.statusTone)
+                                .frame(width: 7, height: 7)
+                                .shadow(color: appState.statusTone.opacity(0.5), radius: 4)
+
+                            Text(appState.statusText)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
@@ -105,24 +127,6 @@ struct SidebarView: View {
                         Picker("", selection: $state.language) {
                             ForEach(supportedLanguages, id: \.code) { lang in
                                 Text(lang.name).tag(lang.code)
-                            }
-                        }
-                        .labelsHidden()
-                    }
-
-                    // Mic Mode
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("MIC MODE")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .tracking(1.5)
-
-                        Picker("", selection: Binding(
-                            get: { appState.mode },
-                            set: { appState.updateMode($0) }
-                        )) {
-                            ForEach(VoiceMode.allCases, id: \.self) { mode in
-                                Text(mode.label).tag(mode)
                             }
                         }
                         .labelsHidden()

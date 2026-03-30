@@ -116,11 +116,18 @@ actor PythonBackend {
         }
     }
 
-    private func uvPath() -> String {
+    private func uvPath() throws -> String {
+        let realHome = NSHomeDirectory().replacingOccurrences(
+            of: "/Library/Containers/[^/]+/Data",
+            with: "",
+            options: .regularExpression
+        )
         let candidates = [
+            realHome + "/.local/bin/uv",
             ProcessInfo.processInfo.environment["HOME"].map { $0 + "/.local/bin/uv" },
             "/usr/local/bin/uv",
             "/opt/homebrew/bin/uv",
+            "/usr/bin/uv",
         ].compactMap { $0 }
 
         for path in candidates {
@@ -129,7 +136,22 @@ actor PythonBackend {
             }
         }
 
-        return "uv"
+        // Try resolving via shell as last resort
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        proc.arguments = ["-l", "-c", "which uv"]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = Pipe()
+        try? proc.run()
+        proc.waitUntilExit()
+        let resolved = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !resolved.isEmpty, FileManager.default.isExecutableFile(atPath: resolved) {
+            return resolved
+        }
+
+        throw PythonBackendError.setupFailed("Could not find 'uv'. Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh")
     }
 
     private func runShell(_ executable: String, arguments: [String]) async throws {

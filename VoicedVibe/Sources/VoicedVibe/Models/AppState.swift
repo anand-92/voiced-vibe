@@ -24,8 +24,8 @@ final class AppState: GeminiConnectionDelegate, NarrationConnectionDelegate, Bac
     // MARK: - Settings
 
     var language = "en-US"
-    var mode: VoiceMode = .toggle
-    var micHint = "Tap Space to Talk"
+    var mode: VoiceMode = .live
+    var micHint = "Listening..."
 
     // MARK: - Connection State
 
@@ -35,6 +35,20 @@ final class AppState: GeminiConnectionDelegate, NarrationConnectionDelegate, Bac
     var statusText = "Disconnected"
     var backendReady = false
     var backendError: String?
+    var micPermission: MicPermission = .unknown
+    var inputLevel: Float = 0
+    var outputLevel: Float = 0
+
+    // MARK: - Client-side VAD
+
+    private var vadActive = false
+    private var speechCandidateStart: Date?
+    private var lastSpeechTime = Date()
+    private let speechThreshold: Float = 0.22
+    private let bargeInThreshold: Float = 0.5
+    private let bargeInFactor: Float = 0.9
+    private let speechActivationDuration: TimeInterval = 0.12
+    private let silenceDuration: TimeInterval = 1.0
 
     // MARK: - Recent Projects
 
@@ -133,29 +147,33 @@ final class AppState: GeminiConnectionDelegate, NarrationConnectionDelegate, Bac
         let baseURL = await pythonBackend.baseURL
 
         audioManager.setup()
-        audioManager.setMode(mode)
-
+        audioManager.onPermissionChange = { [weak self] permission in
+            guard let self else { return }
+            Task { @MainActor in self.micPermission = permission }
+        }
         let backend = BackendConnection(delegate: self, baseURL: baseURL)
         backendConnection = backend
         await backend.connect()
 
         await connectGemini()
+        updateMode(.live)
+        audioManager.startCapture()
     }
 
     func connectGemini() async {
         let baseURL = await pythonBackend.baseURL
 
-        audioManager.onChunk = { [weak self] base64 in
+        audioManager.onAudioCaptured = { [weak self] base64 in
             guard let self else { return }
             Task { await self.geminiConnection?.sendAudio(base64) }
         }
-        audioManager.onCaptureStart = { [weak self] in
+        audioManager.onInputLevel = { [weak self] level in
             guard let self else { return }
-            Task { await self.geminiConnection?.sendActivityStart() }
+            Task { @MainActor in self.handleInputLevel(level) }
         }
-        audioManager.onCaptureEnd = { [weak self] in
+        audioManager.onOutputLevel = { [weak self] level in
             guard let self else { return }
-            Task { await self.geminiConnection?.sendActivityEnd() }
+            Task { @MainActor in self.outputLevel = level }
         }
 
         let gemini = GeminiConnection(delegate: self, languageCode: language, backendBaseURL: baseURL)
@@ -282,7 +300,60 @@ final class AppState: GeminiConnectionDelegate, NarrationConnectionDelegate, Bac
     func updateMode(_ newMode: VoiceMode) {
         mode = newMode
         micHint = newMode.hint
-        audioManager.setMode(newMode)
+        if isConnected, !claudeWorking {
+            geminiState = .listening
+            statusText = "Listening..."
+        }
+    }
+
+    // MARK: - Client-side VAD
+
+    func handleInputLevel(_ level: Float) {
+        inputLevel = level
+        guard isConnected else {
+            vadActive = false
+            speechCandidateStart = nil
+            return
+        }
+
+        let now = Date()
+
+        // Raise threshold while model is speaking to avoid playback bleed (matches Genie)
+        let isModelAudible = geminiState == .speaking || outputLevel > 0.08
+        let effectiveThreshold: Float
+        if isModelAudible {
+            effectiveThreshold = max(speechThreshold + (outputLevel * bargeInFactor), bargeInThreshold)
+        } else {
+            effectiveThreshold = speechThreshold
+        }
+
+        if level > effectiveThreshold {
+            lastSpeechTime = now
+
+            if vadActive { return }
+
+            if speechCandidateStart == nil {
+                speechCandidateStart = now
+            }
+
+            // Require sustained speech before triggering
+            if let start = speechCandidateStart,
+               now.timeIntervalSince(start) >= speechActivationDuration {
+                vadActive = true
+                speechCandidateStart = nil
+                geminiState = .listening
+                statusText = "Listening..."
+                Task { await geminiConnection?.sendActivityStart() }
+            }
+        } else if vadActive {
+            if now.timeIntervalSince(lastSpeechTime) > silenceDuration {
+                vadActive = false
+                speechCandidateStart = nil
+                Task { await geminiConnection?.sendActivityEnd() }
+            }
+        } else {
+            speechCandidateStart = nil
+        }
     }
 
     private func saveRecentProject(_ path: String) {
@@ -489,30 +560,23 @@ final class AppState: GeminiConnectionDelegate, NarrationConnectionDelegate, Bac
     private func handleSetClaudeModel(id: String, name: String, args: [String: Any]) async {
         let baseURL = await pythonBackend.baseURL
         let model = args["model"] as? String ?? ""
-        let effort = args["effort"] as? String ?? ""
 
-        let url: URL
-        var request: URLRequest
+        let url = URL(string: "\(baseURL)/api/claude-config")!
+        var request = URLRequest(url: url)
 
-        if model.isEmpty, effort.isEmpty {
-            url = URL(string: "\(baseURL)/api/claude-config")!
-            request = URLRequest(url: url)
-        } else {
-            url = URL(string: "\(baseURL)/api/claude-config")!
-            request = URLRequest(url: url)
+        if !model.isEmpty {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try? JSONSerialization.data(withJSONObject: ["model": model, "effort": effort])
+            request.httpBody = try? JSONSerialization.data(withJSONObject: ["model": model])
         }
 
         do {
             let (data, _) = try await URLSession.shared.data(for: request)
             if let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 let m = config["model"] as? String ?? "?"
-                let e = config["effort"] as? String ?? "?"
-                let msg = model.isEmpty && effort.isEmpty
-                    ? "Current config: model=\(m), effort=\(e). Available models: opus, sonnet, haiku. Available efforts: low, medium, high, max."
-                    : "Claude config updated: model=\(m), effort=\(e)"
+                let msg = model.isEmpty
+                    ? "Current model: \(m). Available: opus (smartest), sonnet (balanced), haiku (fastest)."
+                    : "Model changed to \(m)."
                 await geminiConnection?.sendFunctionResponse(id: id, name: name, result: msg)
                 addTimelineMessage(.geminiToolResult, tag: "Result", detail: msg, renderMarkdown: true)
             }
